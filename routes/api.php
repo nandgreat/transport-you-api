@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\V1\RouteController;
 use App\Http\Controllers\Api\V1\ScheduleController;
 use App\Http\Controllers\Api\V1\StateController;
 use App\Http\Controllers\Api\V1\UploadController;
+use App\Http\Controllers\Api\V1\VehicleClassController;
 
 /*
 |--------------------------------------------------------------------------
@@ -40,6 +41,7 @@ Route::prefix('v1')->group(function () {
         Route::apiResource('routes', RouteController::class);
         Route::apiResource('schedules', ScheduleController::class);
         Route::apiResource('states', StateController::class);
+        Route::apiResource('vehicle-classes', VehicleClassController::class);
 
         Route::post('/upload', [UploadController::class, 'upload']);
     });
