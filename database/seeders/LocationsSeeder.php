@@ -3,33 +3,42 @@
 namespace Database\Seeders;
 
 use App\Models\Location;
-use App\Models\Tenant;
+use App\Models\State;
+use App\Models\Status;
 use Illuminate\Database\Seeder;
 
 class LocationsSeeder extends Seeder
 {
     public function run(): void
     {
+        $status = Status::firstOrCreate(['name' => 'active']);
 
         $locations = [
-            ['name' => 'Abuja', 'city' => 'Abuja', 'state_id' => 15],
-            ['name' => 'Lagos', 'city' => 'Lagos', 'state_id' => 25],
-            ['name' => 'Port Harcourt', 'city' => 'Port Harcourt', 'state_id' => 33],
-            ['name' => 'Kano', 'city' => 'Kano', 'state_id' => 20],
-            ['name' => 'Jos', 'city' => 'Jos', 'state_id' => 32],
-            ['name' => 'Kaduna', 'city' => 'Kaduna', 'state_id' => 19],
-            ['name' => 'Makurdi', 'city' => 'Makurdi', 'state_id' => 7],
-            ['name' => 'Yola', 'city' => 'Yola', 'state_id' => 2],
-            ['name' => 'Enugu', 'city' => 'Enugu', 'state_id' => 14],
-            ['name' => 'Ibadan', 'city' => 'Ibadan', 'state_id' => 31],
-            ['name' => 'Ilorin', 'city' => 'Ilorin', 'state_id' => 24],
-            ['name' => 'Owerri', 'city' => 'Owerri', 'state_id' => 17],
+            ['name' => 'Abuja',         'city' => 'Abuja',         'state_code' => 'FC'],
+            ['name' => 'Lagos',         'city' => 'Lagos',         'state_code' => 'LA'],
+            ['name' => 'Port Harcourt', 'city' => 'Port Harcourt', 'state_code' => 'RI'],
+            ['name' => 'Kano',          'city' => 'Kano',          'state_code' => 'KN'],
+            ['name' => 'Jos',           'city' => 'Jos',           'state_code' => 'PL'],
+            ['name' => 'Kaduna',        'city' => 'Kaduna',        'state_code' => 'KD'],
+            ['name' => 'Makurdi',       'city' => 'Makurdi',       'state_code' => 'BE'],
+            ['name' => 'Enugu',         'city' => 'Enugu',         'state_code' => 'EN'],
+            ['name' => 'Ibadan',        'city' => 'Ibadan',        'state_code' => 'OY'],
+            ['name' => 'Onitsha',       'city' => 'Onitsha',       'state_code' => 'AN'],
+            ['name' => 'Yola',          'city' => 'Yola',          'state_code' => 'AD'],
+            ['name' => 'Ilorin',        'city' => 'Ilorin',        'state_code' => 'KW'],
+            ['name' => 'Owerri',        'city' => 'Owerri',        'state_code' => 'IM'],
         ];
 
-        foreach ($locations as $location) {
+        foreach ($locations as $data) {
+            $state = State::where('code', $data['state_code'])->firstOrFail();
+
             Location::updateOrCreate(
-                ['name' => $location['name']],
-                array_merge($location, ['status_id' => 1])
+                ['name' => $data['name'], 'tenant_id' => null],
+                [
+                    'city'      => $data['city'],
+                    'state_id'  => $state->id,
+                    'status_id' => $status->id,
+                ]
             );
         }
     }

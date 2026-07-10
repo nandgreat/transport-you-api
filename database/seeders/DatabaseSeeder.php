@@ -17,6 +17,15 @@ class DatabaseSeeder extends Seeder
             StatesSeeder::class,
             StatusesSeeder::class,
             LocationsSeeder::class,
+            VehicleCategorySeeder::class,
+            VehicleTypeSeeder::class,
+            TenantSeeder::class,
+            TenantLocationsSeeder::class,
+            TenantRoutesSeeder::class,
+            NandomUserSeeder::class,
+            AbcTransportSeeder::class,
+            AbcTransportRoutesSeeder::class,
+            AbcTransportScheduleSeeder::class,
         ]);
     }
 }

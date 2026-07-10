@@ -11,16 +11,24 @@ class Vehicle extends Model
 
     protected $fillable = [
         'tenant_id',
+        'vehicle_type_id',
         'registration_number',
-        'type',
-        'capacity',
         'status',
         'image_url',
+    ];
+
+    protected $casts = [
+        'vehicle_type_id' => 'integer',
     ];
 
     public function tenant()
     {
         return $this->belongsTo(Tenant::class);
+    }
+
+    public function vehicleType()
+    {
+        return $this->belongsTo(VehicleType::class);
     }
 
     public function schedules()

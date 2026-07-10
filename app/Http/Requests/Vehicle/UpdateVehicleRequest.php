@@ -26,10 +26,9 @@ class UpdateVehicleRequest extends FormRequest
                     return $query->where('tenant_id', $this->user()->tenant_id);
                 })->ignore($vehicleId),
             ],
-            'type' => 'sometimes|required|string',
-            'capacity' => 'sometimes|required|integer|min:1',
+            'vehicle_type_id' => 'sometimes|nullable|integer|exists:vehicle_types,id',
             'status' => 'sometimes|required|in:active,maintenance,inactive',
-            'image_url' => 'sometimes|nullable|url|max:2048',
+            'image_url' => 'sometimes|nullable|string|max:2048',
         ];
     }
 }

@@ -4,6 +4,9 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Booking;
+use App\Models\Tenant;
+use App\Models\VehicleType;
 
 class Schedule extends Model
 {
@@ -11,8 +14,10 @@ class Schedule extends Model
 
     protected $fillable = [
         'tenant_id',
+        'schedule_group_id',
+        'return_schedule_id',
         'route_id',
-        'vehicle_id',
+        'vehicle_type_id',
         'departure_time',
         'arrival_time',
         'fare',
@@ -25,6 +30,21 @@ class Schedule extends Model
         'fare' => 'decimal:2',
     ];
 
+    public function scheduleGroup()
+    {
+        return $this->belongsTo(ScheduleGroup::class);
+    }
+
+    public function returnSchedule()
+    {
+        return $this->belongsTo(Schedule::class, 'return_schedule_id');
+    }
+
+    public function outboundSchedule()
+    {
+        return $this->hasOne(Schedule::class, 'return_schedule_id');
+    }
+
     public function tenant()
     {
         return $this->belongsTo(Tenant::class);
@@ -35,8 +55,20 @@ class Schedule extends Model
         return $this->belongsTo(Route::class);
     }
 
-    public function vehicle()
+    public function vehicleType()
     {
-        return $this->belongsTo(Vehicle::class);
+        return $this->belongsTo(VehicleType::class);
+    }
+
+    public function bookings()
+    {
+        return $this->hasMany(Booking::class);
+    }
+
+    public function availableSeats(): int
+    {
+        $capacity = $this->vehicleType?->capacity ?? 0;
+        $booked   = $this->bookings()->whereIn('status', ['pending', 'confirmed'])->count();
+        return max(0, $capacity - $booked);
     }
 }

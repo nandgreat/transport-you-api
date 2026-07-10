@@ -9,8 +9,11 @@ use App\Http\Controllers\Api\V1\LocationController;
 use App\Http\Controllers\Api\V1\RouteController;
 use App\Http\Controllers\Api\V1\ScheduleController;
 use App\Http\Controllers\Api\V1\StateController;
+use App\Http\Controllers\Api\V1\TripController;
 use App\Http\Controllers\Api\V1\UploadController;
 use App\Http\Controllers\Api\V1\VehicleClassController;
+use App\Http\Controllers\Api\V1\VehicleCategoryController;
+use App\Http\Controllers\Api\V1\VehicleTypeController;
 
 /*
 |--------------------------------------------------------------------------
@@ -24,6 +27,10 @@ use App\Http\Controllers\Api\V1\VehicleClassController;
 */
 
 Route::prefix('v1')->group(function () {
+    // Public trip search — no auth required
+    Route::get('/trips', [TripController::class, 'index']);
+    Route::get('/trips/{id}', [TripController::class, 'show']);
+
     Route::post('/register', [AuthController::class, 'register']);
     Route::post('/login', [AuthController::class, 'login']);
 
@@ -42,7 +49,9 @@ Route::prefix('v1')->group(function () {
         Route::apiResource('schedules', ScheduleController::class);
         Route::apiResource('states', StateController::class);
         Route::apiResource('vehicle-classes', VehicleClassController::class);
+        Route::apiResource('vehicle-categories', VehicleCategoryController::class);
+        Route::apiResource('vehicle-types', VehicleTypeController::class);
 
-        Route::post('/upload', [UploadController::class, 'upload']);
+        Route::post('/upload/images', [UploadController::class, 'upload']);
     });
 });

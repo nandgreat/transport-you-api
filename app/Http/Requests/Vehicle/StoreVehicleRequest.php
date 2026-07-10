@@ -21,13 +21,12 @@ class StoreVehicleRequest extends FormRequest
                 'required',
                 'string',
                 Rule::unique('vehicles')->when($tenantId, function ($query) use ($tenantId) {
-            $query->where('tenant_id', $tenantId);
-        }),
+                    $query->where('tenant_id', $tenantId);
+                }),
             ],
-            'type' => 'required|string',
-            'capacity' => 'required|integer|min:1',
+            'vehicle_type_id' => 'nullable|integer|exists:vehicle_types,id',
             'status' => 'nullable|in:active,maintenance,inactive',
-            'image_url' => 'nullable|url|max:2048',
+            'image_url' => 'nullable|string|max:2048',
         ];
 
         if ($this->user()->isSuperAdmin() && $this->isMethod('post')) {

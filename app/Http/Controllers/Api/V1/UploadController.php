@@ -4,22 +4,23 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\UploadImageRequest;
-use Illuminate\Support\Facades\Storage;
+use App\Services\UploadService;
 
 class UploadController extends Controller
 {
+    public function __construct(protected UploadService $uploadService) {}
+
     public function upload(UploadImageRequest $request)
     {
-        $type = $request->input('type');
-        $file = $request->file('image');
+        $file    = $request->file('image');
+        $type    = $request->input('type');
+        $modelId = $request->input('model_id') ? (int) $request->input('model_id') : null;
 
-        $path = $file->store($type, 'public');
-        $url  = Storage::disk('public')->url($path);
+        // Replace flow: delete the old file and update the model in one step
+        $result = $modelId !== null
+            ? $this->uploadService->replace($file, $type, $modelId)
+            : $this->uploadService->store($file, $type);
 
-        return $this->created([
-            'url'  => $url,
-            'path' => $path,
-            'type' => $type,
-        ], 'Image uploaded successfully.');
+        return $this->created($result, 'Image uploaded successfully.');
     }
 }
