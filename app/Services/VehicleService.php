@@ -8,7 +8,7 @@ class VehicleService
 {
     public function getVehicles(?int $tenantId, int $perPage = 15)
     {
-        return Vehicle::with(['vehicleType.category'])
+        return Vehicle::with(['vehicleType.category', 'vehicleType.seatArrangementTypes'])
             ->when($tenantId, fn($q) => $q->where('tenant_id', $tenantId))
             ->paginate($perPage);
     }
@@ -16,12 +16,12 @@ class VehicleService
     public function createVehicle(?int $tenantId, array $data)
     {
         $vehicle = Vehicle::create(array_merge($data, $tenantId ? ['tenant_id' => $tenantId] : []));
-        return $vehicle->load(['vehicleType.category']);
+        return $vehicle->load(['vehicleType.category', 'vehicleType.seatArrangementTypes']);
     }
 
     public function getVehicle(?int $tenantId, string $id)
     {
-        return Vehicle::with(['vehicleType.category'])
+        return Vehicle::with(['vehicleType.category', 'vehicleType.seatArrangementTypes'])
             ->when($tenantId, fn($q) => $q->where('tenant_id', $tenantId))
             ->findOrFail($id);
     }
@@ -30,7 +30,7 @@ class VehicleService
     {
         $vehicle = $this->getVehicle($tenantId, $id);
         $vehicle->update($data);
-        return $vehicle->load(['vehicleType.category']);
+        return $vehicle->load(['vehicleType.category', 'vehicleType.seatArrangementTypes']);
     }
 
     public function deleteVehicle(?int $tenantId, string $id)

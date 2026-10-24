@@ -16,7 +16,7 @@ class ScheduleService
         return Schedule::with([
             'route.origin.state',
             'route.destination.state',
-            'vehicleType.category',
+            'vehicleType.category', 'vehicleType.seatArrangementTypes', 'seatArrangement',
             'tenant',
             'returnSchedule.route.origin.state',
             'returnSchedule.route.destination.state',
@@ -65,11 +65,15 @@ class ScheduleService
             $data['tenant_id'] = $tenantId;
         }
 
+        $this->assertArrangementForType($data['vehicle_type_id'], $data['seat_arrangement_type_id'] ?? null);
+        $this->assertCapacityDeterminable($data['vehicle_type_id'], $data['seat_arrangement_type_id'] ?? null);
+
         $group = ScheduleGroup::create([
-            'tenant_id'       => $data['tenant_id'],
-            'route_id'        => $data['route_id'],
-            'vehicle_type_id' => $data['vehicle_type_id'],
-            'start_date'      => $data['start_date'],
+            'tenant_id'        => $data['tenant_id'],
+            'route_id'         => $data['route_id'],
+            'vehicle_type_id'  => $data['vehicle_type_id'],
+            'seat_arrangement_type_id' => $data['seat_arrangement_type_id'] ?? null,
+            'start_date'       => $data['start_date'],
             'end_date'        => $data['end_date'],
             'days_of_week'    => $data['days_of_week'],
             'departure_time'  => $data['departure_time'],
@@ -86,10 +90,11 @@ class ScheduleService
             ]);
 
             $returnGroup = ScheduleGroup::create([
-                'tenant_id'       => $data['tenant_id'],
-                'route_id'        => $returnRouteId,
-                'vehicle_type_id' => $data['vehicle_type_id'],
-                'start_date'      => $data['start_date'],
+                'tenant_id'        => $data['tenant_id'],
+                'route_id'         => $returnRouteId,
+                'vehicle_type_id'  => $data['vehicle_type_id'],
+                'seat_arrangement_type_id' => $data['seat_arrangement_type_id'] ?? null,
+                'start_date'       => $data['start_date'],
                 'end_date'        => $data['end_date'],
                 'days_of_week'    => $data['days_of_week'],
                 'departure_time'  => $data['return_departure_time'],
@@ -101,8 +106,8 @@ class ScheduleService
 
         $schedules = $this->generateSchedulesForGroup($group, $returnGroup);
 
-        $group->load(['route.origin.state', 'route.destination.state', 'vehicleType.category', 'tenant']);
-        $returnGroup?->load(['route.origin.state', 'route.destination.state', 'vehicleType.category', 'tenant']);
+        $group->load(['route.origin.state', 'route.destination.state', 'vehicleType.category', 'vehicleType.seatArrangementTypes', 'seatArrangement', 'tenant']);
+        $returnGroup?->load(['route.origin.state', 'route.destination.state', 'vehicleType.category', 'vehicleType.seatArrangementTypes', 'seatArrangement', 'tenant']);
 
         return ['group' => $group, 'return_group' => $returnGroup, 'schedules' => $schedules];
     }
@@ -126,6 +131,7 @@ class ScheduleService
                 'schedule_group_id' => $group->id,
                 'route_id'          => $group->route_id,
                 'vehicle_type_id'   => $group->vehicle_type_id,
+                'seat_arrangement_type_id' => $group->seat_arrangement_type_id,
                 'departure_time'    => $departure,
                 'arrival_time'      => $arrival,
                 'fare'              => $group->fare,
@@ -141,6 +147,7 @@ class ScheduleService
                     'schedule_group_id' => $returnGroup->id,
                     'route_id'          => $returnGroup->route_id,
                     'vehicle_type_id'   => $returnGroup->vehicle_type_id,
+                    'seat_arrangement_type_id' => $returnGroup->seat_arrangement_type_id,
                     'departure_time'    => $retDeparture,
                     'arrival_time'      => $retArrival,
                     'fare'              => $returnGroup->fare,
@@ -176,8 +183,11 @@ class ScheduleService
             $data['tenant_id'] = $tenantId;
         }
 
+        $this->assertArrangementForType($data['vehicle_type_id'] ?? null, $data['seat_arrangement_type_id'] ?? null);
+        $this->assertCapacityDeterminable($data['vehicle_type_id'] ?? null, $data['seat_arrangement_type_id'] ?? null);
+
         $scheduleData = array_intersect_key($data, array_flip([
-            'tenant_id', 'route_id', 'vehicle_type_id',
+            'tenant_id', 'route_id', 'vehicle_type_id', 'seat_arrangement_type_id',
             'departure_time', 'arrival_time', 'fare', 'status',
         ]));
 
@@ -190,7 +200,7 @@ class ScheduleService
         }
 
         return $schedule->load([
-            'route.origin.state', 'route.destination.state', 'vehicleType.category', 'tenant',
+            'route.origin.state', 'route.destination.state', 'vehicleType.category', 'vehicleType.seatArrangementTypes', 'seatArrangement', 'tenant',
             'returnSchedule.route.origin.state', 'returnSchedule.route.destination.state', 'returnSchedule.vehicleType.category',
         ]);
     }
@@ -203,20 +213,21 @@ class ScheduleService
         ]);
 
         return Schedule::create([
-            'tenant_id'       => $outbound->tenant_id,
-            'route_id'        => $returnRouteId,
-            'vehicle_type_id' => $outbound->vehicle_type_id,
-            'departure_time'  => $data['return_departure_time'],
-            'arrival_time'    => $data['return_arrival_time'] ?? null,
-            'fare'            => $data['return_fare'] ?? $outbound->fare,
-            'status'          => 'scheduled',
+            'tenant_id'        => $outbound->tenant_id,
+            'route_id'         => $returnRouteId,
+            'vehicle_type_id'  => $outbound->vehicle_type_id,
+            'seat_arrangement_type_id' => $outbound->seat_arrangement_type_id,
+            'departure_time'   => $data['return_departure_time'],
+            'arrival_time'     => $data['return_arrival_time'] ?? null,
+            'fare'             => $data['return_fare'] ?? $outbound->fare,
+            'status'           => 'scheduled',
         ]);
     }
 
     public function getSchedule(?int $tenantId, string $id)
     {
         return Schedule::with([
-            'route.origin.state', 'route.destination.state', 'vehicleType.category', 'tenant',
+            'route.origin.state', 'route.destination.state', 'vehicleType.category', 'vehicleType.seatArrangementTypes', 'seatArrangement', 'tenant',
             'returnSchedule.route.origin.state', 'returnSchedule.route.destination.state', 'returnSchedule.vehicleType.category',
         ])->when($tenantId, fn($q) => $q->where('tenant_id', $tenantId))->findOrFail($id);
     }
@@ -235,12 +246,58 @@ class ScheduleService
             ));
         }
 
+        if (array_key_exists('seat_arrangement_type_id', $data)) {
+            $this->assertArrangementForType(
+                $data['vehicle_type_id'] ?? $schedule->vehicle_type_id,
+                $data['seat_arrangement_type_id']
+            );
+        }
+
         $scheduleData = array_intersect_key($data, array_flip([
-            'route_id', 'vehicle_type_id', 'departure_time', 'arrival_time', 'fare', 'status',
+            'route_id', 'vehicle_type_id', 'seat_arrangement_type_id', 'departure_time', 'arrival_time', 'fare', 'status',
         ]));
 
         $schedule->update($scheduleData);
-        return $schedule->load(['route.origin.state', 'route.destination.state', 'vehicleType.category', 'tenant']);
+        return $schedule->load(['route.origin.state', 'route.destination.state', 'vehicleType.category', 'vehicleType.seatArrangementTypes', 'seatArrangement', 'tenant']);
+    }
+
+    /**
+     * A chosen seat arrangement must be one the vehicle type actually offers.
+     */
+    private function assertArrangementForType(?int $vehicleTypeId, ?int $arrangementId): void
+    {
+        if (! $arrangementId || ! $vehicleTypeId) {
+            return;
+        }
+
+        $attached = \Illuminate\Support\Facades\DB::table('seat_arrangement_type_vehicle_type')
+            ->where('vehicle_type_id', $vehicleTypeId)
+            ->where('seat_arrangement_type_id', $arrangementId)
+            ->exists();
+
+        abort_if(! $attached, 422, 'The selected seat arrangement is not available for this vehicle type.');
+    }
+
+    /**
+     * Capacity is derived from the seat arrangement, so a schedule can only be
+     * created when one can be resolved: either chosen explicitly, or available
+     * as the vehicle type's default.
+     */
+    private function assertCapacityDeterminable(?int $vehicleTypeId, ?int $chosenId): void
+    {
+        if (! $vehicleTypeId || $chosenId) {
+            return;
+        }
+
+        $hasArrangement = \Illuminate\Support\Facades\DB::table('seat_arrangement_type_vehicle_type')
+            ->where('vehicle_type_id', $vehicleTypeId)
+            ->exists();
+
+        abort_if(
+            ! $hasArrangement,
+            422,
+            'Cannot determine capacity: select a seat_arrangement_type_id or add at least one seat arrangement to the vehicle type.'
+        );
     }
 
     public function deleteSchedule(?int $tenantId, string $id)

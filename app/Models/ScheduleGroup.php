@@ -13,6 +13,7 @@ class ScheduleGroup extends Model
         'tenant_id',
         'route_id',
         'vehicle_type_id',
+        'seat_arrangement_type_id',
         'start_date',
         'end_date',
         'days_of_week',
@@ -42,6 +43,11 @@ class ScheduleGroup extends Model
     public function vehicleType()
     {
         return $this->belongsTo(VehicleType::class);
+    }
+
+    public function seatArrangement()
+    {
+        return $this->belongsTo(SeatArrangementType::class, 'seat_arrangement_type_id');
     }
 
     public function schedules()

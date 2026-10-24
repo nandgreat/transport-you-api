@@ -16,9 +16,11 @@ class LocationController extends Controller
     {
         $this->locationService = $locationService;
 
+        $this->middleware('auth:api')->except(['index', 'show']);
+
         $this->middleware(function ($request, $next) {
 
-            if (!$request->user()->isSuperAdmin()) {
+            if (!$request->user() || !$request->user()->isSuperAdmin()) {
                 return $this->badRequest('You are not authorized to perform this action.');
             }
             return $next($request);
@@ -26,7 +28,23 @@ class LocationController extends Controller
     }
     public function index(Request $request)
     {
-        return $this->success($this->locationService->getLocations(), 'Locations retrieved successfully');
+        $request->validate([
+            'search'        => 'nullable|string|max:100',
+            'q'             => 'nullable|string|max:100',
+            'query'         => 'nullable|string|max:100',
+            'city'          => 'nullable|string|max:100',
+            'name'          => 'nullable|string|max:100',
+            'location_name' => 'nullable|string|max:100',
+            'per_page'      => 'nullable|integer|min:1|max:100',
+        ]);
+
+        $filters = $request->only(['search', 'q', 'query', 'city', 'name', 'location_name']);
+        $perPage = (int) $request->input('per_page', 30);
+
+        return $this->success(
+            $this->locationService->getLocations($filters, $perPage),
+            'Locations retrieved successfully'
+        );
     }
 
     public function store(StoreLocationRequest $request)

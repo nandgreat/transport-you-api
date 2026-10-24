@@ -30,7 +30,6 @@ class SuperAdminTest extends TestCase
         $category = VehicleCategory::create(['vehicle_category_name' => 'Bus']);
         return VehicleType::create([
             'vehicle_name'        => 'Toyota Hiace',
-            'capacity'            => 14,
             'vehicle_category_id' => $category->id,
             'year'                => 2022,
             'status'              => 'active',

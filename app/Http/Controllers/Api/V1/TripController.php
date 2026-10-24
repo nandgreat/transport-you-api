@@ -36,7 +36,7 @@ class TripController extends Controller
     public function show(string $id)
     {
         $schedule = Schedule::with([
-            'route.origin.state', 'route.destination.state', 'vehicleType.category', 'tenant',
+            'route.origin.state', 'route.destination.state', 'vehicleType.category', 'vehicleType.seatArrangementTypes', 'seatArrangement', 'tenant',
             'returnSchedule.route.origin.state', 'returnSchedule.route.destination.state', 'returnSchedule.vehicleType.category',
         ])->where('status', 'scheduled')
           ->where('departure_time', '>', now())
@@ -59,8 +59,9 @@ class TripController extends Controller
 
     private function formatTrip(Schedule $schedule, bool $includeReturn = true): array
     {
-        $vt    = $schedule->vehicleType;
-        $route = $schedule->route;
+        $vt       = $schedule->vehicleType;
+        $route    = $schedule->route;
+        $applied  = $schedule->resolveSeatArrangement();
 
         $data = [
             'id'              => $schedule->id,
@@ -68,7 +69,15 @@ class TripController extends Controller
             'arrival_time'    => $schedule->arrival_time,
             'fare'            => $schedule->fare,
             'status'          => $schedule->status,
+            'capacity'        => $schedule->capacity(),
             'available_seats' => $schedule->availableSeats(),
+            'seats'           => $schedule->seatMap(),
+            'seat_arrangement' => $applied ? [
+                'id'                => $applied->id,
+                'name'              => $applied->name,
+                'number_of_seats'   => $applied->number_of_seats,
+                'arrangement_image' => $applied->arrangement_image,
+            ] : null,
             'is_round_trip'   => $schedule->return_schedule_id !== null,
             'route' => $route ? [
                 'id'                 => $route->id,
@@ -80,14 +89,23 @@ class TripController extends Controller
             'vehicle_type' => $vt ? [
                 'id'           => $vt->id,
                 'vehicle_name' => $vt->vehicle_name,
-                'capacity'     => $vt->capacity,
                 'year'         => $vt->year,
                 'image_url'    => $vt->image_url,
                 'category'     => $vt->category,
+                'seat_arrangements' => $vt->relationLoaded('seatArrangementTypes')
+                    ? $vt->seatArrangementTypes->map(fn ($sa) => [
+                        'id'                => $sa->id,
+                        'name'              => $sa->name,
+                        'number_of_seats'   => $sa->number_of_seats,
+                        'arrangement_image' => $sa->arrangement_image,
+                        'is_default'        => (bool) $sa->pivot->is_default,
+                    ])->values()
+                    : [],
             ] : null,
             'operator' => $schedule->tenant ? [
                 'id'   => $schedule->tenant->id,
                 'name' => $schedule->tenant->name,
+                'logo_url' => $schedule->tenant->logo_url,
             ] : null,
         ];
 

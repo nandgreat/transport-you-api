@@ -13,6 +13,7 @@ class Tenant extends Model
         'name',
         'email',
         'phone',
+        'logo_url',
         'status',
     ];
 

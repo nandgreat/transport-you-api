@@ -13,7 +13,7 @@ class AbcTransportScheduleSeeder extends Seeder
 {
     public function run(): void
     {
-        $tenant = Tenant::findOrFail(2); // ABC Transport Limited
+        $tenant = Tenant::where('email', 'abctransport@gmail.com')->firstOrFail(); // ABC Transport Limited
 
         $abuja = Location::where('name', 'Abuja')->whereNull('tenant_id')->firstOrFail();
         $lagos = Location::where('name', 'Lagos')->whereNull('tenant_id')->firstOrFail();

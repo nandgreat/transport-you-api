@@ -18,6 +18,7 @@ class DatabaseSeeder extends Seeder
             StatusesSeeder::class,
             LocationsSeeder::class,
             VehicleCategorySeeder::class,
+            SeatArrangementTypeSeeder::class,
             VehicleTypeSeeder::class,
             TenantSeeder::class,
             TenantLocationsSeeder::class,

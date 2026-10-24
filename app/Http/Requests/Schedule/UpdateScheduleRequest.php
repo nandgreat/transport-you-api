@@ -39,6 +39,7 @@ class UpdateScheduleRequest extends FormRequest
                 'integer',
                 Rule::exists('vehicle_types', 'id')->where('status', 'active'),
             ],
+            'seat_arrangement_type_id' => 'sometimes|nullable|integer|exists:seat_arrangement_types,id',
             'departure_time' => 'sometimes|required|date_format:Y-m-d H:i:s',
             'arrival_time'   => 'sometimes|nullable|date_format:Y-m-d H:i:s|after:departure_time',
             'fare'           => 'sometimes|required|numeric|min:0',

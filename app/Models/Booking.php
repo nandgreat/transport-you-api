@@ -13,12 +13,16 @@ class Booking extends Model
         'tenant_id',
         'user_id',
         'schedule_id',
+        'return_booking_id',
         'total_amount',
+        'passengers',
+        'notes',
         'status',
     ];
 
     protected $casts = [
         'total_amount' => 'decimal:2',
+        'passengers'   => 'array',
     ];
 
     public function tenant()
@@ -34,6 +38,16 @@ class Booking extends Model
     public function schedule()
     {
         return $this->belongsTo(Schedule::class);
+    }
+
+    public function returnBooking()
+    {
+        return $this->belongsTo(Booking::class, 'return_booking_id');
+    }
+
+    public function outboundBooking()
+    {
+        return $this->hasOne(Booking::class, 'return_booking_id');
     }
 
     public function tickets()

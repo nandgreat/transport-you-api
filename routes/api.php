@@ -4,16 +4,19 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\VehicleController;
+use App\Http\Controllers\Api\V1\TenantController;
 use App\Http\Controllers\Api\V1\TenantOnboardingController;
 use App\Http\Controllers\Api\V1\LocationController;
 use App\Http\Controllers\Api\V1\RouteController;
 use App\Http\Controllers\Api\V1\ScheduleController;
 use App\Http\Controllers\Api\V1\StateController;
 use App\Http\Controllers\Api\V1\TripController;
+use App\Http\Controllers\Api\V1\BookingController;
 use App\Http\Controllers\Api\V1\UploadController;
 use App\Http\Controllers\Api\V1\VehicleClassController;
 use App\Http\Controllers\Api\V1\VehicleCategoryController;
 use App\Http\Controllers\Api\V1\VehicleTypeController;
+use App\Http\Controllers\Api\V1\SeatArrangementTypeController;
 
 /*
 |--------------------------------------------------------------------------
@@ -31,6 +34,8 @@ Route::prefix('v1')->group(function () {
     Route::get('/trips', [TripController::class, 'index']);
     Route::get('/trips/{id}', [TripController::class, 'show']);
 
+    Route::apiResource('locations', LocationController::class);
+
     Route::post('/register', [AuthController::class, 'register']);
     Route::post('/login', [AuthController::class, 'login']);
 
@@ -42,16 +47,27 @@ Route::prefix('v1')->group(function () {
         Route::get('/user', [AuthController::class, 'user']);
         Route::post('/logout', [AuthController::class, 'logout']);
 
+        // Tenant self-service (authenticated user's own tenant)
+        Route::get('/tenant', [TenantController::class, 'show']);
+        Route::patch('/tenant', [TenantController::class, 'update']);
+
 
         Route::apiResource('vehicles', VehicleController::class);
-        Route::apiResource('locations', LocationController::class);
         Route::apiResource('routes', RouteController::class);
         Route::apiResource('schedules', ScheduleController::class);
         Route::apiResource('states', StateController::class);
         Route::apiResource('vehicle-classes', VehicleClassController::class);
         Route::apiResource('vehicle-categories', VehicleCategoryController::class);
         Route::apiResource('vehicle-types', VehicleTypeController::class);
+        Route::apiResource('seat-arrangement-types', SeatArrangementTypeController::class);
 
         Route::post('/upload/images', [UploadController::class, 'upload']);
+
+        // Bookings
+        Route::get('bookings', [BookingController::class, 'index']);
+        Route::post('bookings', [BookingController::class, 'store']);
+        Route::get('bookings/{id}', [BookingController::class, 'show']);
+        Route::patch('bookings/{id}/status', [BookingController::class, 'updateStatus']);
+        Route::patch('bookings/{id}/cancel', [BookingController::class, 'cancel']);
     });
 });

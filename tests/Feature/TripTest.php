@@ -6,6 +6,7 @@ use App\Models\Booking;
 use App\Models\Location;
 use App\Models\Route;
 use App\Models\Schedule;
+use App\Models\SeatArrangementType;
 use App\Models\State;
 use App\Models\Status;
 use App\Models\Tenant;
@@ -29,16 +30,34 @@ class TripTest extends TestCase
     // Helpers
     // -------------------------------------------------------------------------
 
+    private function seatArrangement(int $seats): SeatArrangementType
+    {
+        return SeatArrangementType::firstOrCreate(
+            ['name' => "Test {$seats} Seater"],
+            ['number_of_seats' => $seats, 'status' => 'active']
+        );
+    }
+
+    private function vehicleTypeWithSeats(VehicleCategory $category, int $seats): VehicleType
+    {
+        $vehicleType = VehicleType::firstOrCreate(
+            ['vehicle_name' => 'Toyota Hiace', 'vehicle_category_id' => $category->id, 'year' => 2022],
+            ['status' => 'active']
+        );
+        $vehicleType->seatArrangementTypes()->syncWithoutDetaching([
+            $this->seatArrangement($seats)->id => ['is_default' => true],
+        ]);
+
+        return $vehicleType;
+    }
+
     private function makeTrip(array $overrides = []): Schedule
     {
         $state  = State::firstOrCreate(['name' => 'Lagos'], ['code' => 'LA']);
         $status = Status::firstOrCreate(['name' => 'active']);
 
         $category    = VehicleCategory::firstOrCreate(['vehicle_category_name' => 'Bus']);
-        $vehicleType = VehicleType::firstOrCreate(
-            ['vehicle_name' => 'Toyota Hiace', 'vehicle_category_id' => $category->id, 'year' => 2022],
-            ['capacity' => 30, 'status' => 'active']
-        );
+        $vehicleType = $this->vehicleTypeWithSeats($category, 30);
 
         $tenant = Tenant::create(['name' => 'Test Operator ' . uniqid()]);
         $origin = Location::create(['name' => 'Origin', 'city' => 'City A', 'state_id' => $state->id, 'status_id' => $status->id]);
@@ -95,9 +114,9 @@ class TripTest extends TestCase
         $schedule = $this->makeTrip();
         $user     = User::factory()->create(['tenant_id' => $schedule->tenant_id, 'email_verified_at' => now()]);
 
-        // Two confirmed bookings on a 30-seat vehicle
-        Booking::create(['tenant_id' => $schedule->tenant_id, 'user_id' => $user->id, 'schedule_id' => $schedule->id, 'total_amount' => 4500, 'status' => 'confirmed']);
-        Booking::create(['tenant_id' => $schedule->tenant_id, 'user_id' => $user->id, 'schedule_id' => $schedule->id, 'total_amount' => 4500, 'status' => 'pending']);
+        // Two bookings (seats 1 and 2) on a 30-seat vehicle
+        Booking::create(['tenant_id' => $schedule->tenant_id, 'user_id' => $user->id, 'schedule_id' => $schedule->id, 'total_amount' => 4500, 'status' => 'confirmed', 'passengers' => [['name' => 'A', 'seat_number' => 1]]]);
+        Booking::create(['tenant_id' => $schedule->tenant_id, 'user_id' => $user->id, 'schedule_id' => $schedule->id, 'total_amount' => 4500, 'status' => 'pending', 'passengers' => [['name' => 'B', 'seat_number' => 2]]]);
 
         $response = $this->getJson('/api/v1/trips');
 
@@ -110,7 +129,7 @@ class TripTest extends TestCase
         $schedule = $this->makeTrip();
         $user     = User::factory()->create(['tenant_id' => $schedule->tenant_id, 'email_verified_at' => now()]);
 
-        Booking::create(['tenant_id' => $schedule->tenant_id, 'user_id' => $user->id, 'schedule_id' => $schedule->id, 'total_amount' => 4500, 'status' => 'cancelled']);
+        Booking::create(['tenant_id' => $schedule->tenant_id, 'user_id' => $user->id, 'schedule_id' => $schedule->id, 'total_amount' => 4500, 'status' => 'cancelled', 'passengers' => [['name' => 'A', 'seat_number' => 1]]]);
 
         $response = $this->getJson('/api/v1/trips');
 
@@ -128,10 +147,7 @@ class TripTest extends TestCase
         $status = Status::firstOrCreate(['name' => 'active']);
 
         $category    = VehicleCategory::firstOrCreate(['vehicle_category_name' => 'Bus']);
-        $vehicleType = VehicleType::firstOrCreate(
-            ['vehicle_name' => 'Toyota Hiace', 'vehicle_category_id' => $category->id, 'year' => 2022],
-            ['capacity' => 20, 'status' => 'active']
-        );
+        $vehicleType = $this->vehicleTypeWithSeats($category, 20);
 
         $tenant  = Tenant::create(['name' => 'Filter Operator']);
         $origin1 = Location::create(['name' => 'Lagos Terminal', 'city' => 'Lagos', 'state_id' => $state->id, 'status_id' => $status->id]);
@@ -178,10 +194,7 @@ class TripTest extends TestCase
         $status = Status::firstOrCreate(['name' => 'active']);
 
         $category    = VehicleCategory::firstOrCreate(['vehicle_category_name' => 'Bus']);
-        $vehicleType = VehicleType::firstOrCreate(
-            ['vehicle_name' => 'Toyota Hiace', 'vehicle_category_id' => $category->id, 'year' => 2022],
-            ['capacity' => 20, 'status' => 'active']
-        );
+        $vehicleType = $this->vehicleTypeWithSeats($category, 20);
 
         $tenant = Tenant::create(['name' => 'City Trip Operator']);
         $abuja  = \App\Models\Location::create(['name' => 'Abuja Terminal',  'city' => 'Abuja',        'state_id' => $state->id, 'status_id' => $status->id]);
@@ -205,10 +218,7 @@ class TripTest extends TestCase
         $status = Status::firstOrCreate(['name' => 'active']);
 
         $category    = VehicleCategory::firstOrCreate(['vehicle_category_name' => 'Bus']);
-        $vehicleType = VehicleType::firstOrCreate(
-            ['vehicle_name' => 'Toyota Hiace', 'vehicle_category_id' => $category->id, 'year' => 2022],
-            ['capacity' => 20, 'status' => 'active']
-        );
+        $vehicleType = $this->vehicleTypeWithSeats($category, 20);
 
         $tenant = Tenant::create(['name' => 'Dest City Operator']);
         $abuja  = \App\Models\Location::create(['name' => 'Abuja Terminal', 'city' => 'Abuja', 'state_id' => $state->id, 'status_id' => $status->id]);
@@ -267,10 +277,7 @@ class TripTest extends TestCase
         $status = Status::firstOrCreate(['name' => 'active']);
 
         $category    = VehicleCategory::firstOrCreate(['vehicle_category_name' => 'Bus']);
-        $vehicleType = VehicleType::firstOrCreate(
-            ['vehicle_name' => 'Toyota Hiace', 'vehicle_category_id' => $category->id, 'year' => 2022],
-            ['capacity' => 10, 'status' => 'active']
-        );
+        $vehicleType = $this->vehicleTypeWithSeats($category, 10);
 
         $tenant = Tenant::create(['name' => 'Filter Tenant']);
         $user   = User::factory()->create(['tenant_id' => $tenant->id, 'email_verified_at' => now()]);

@@ -41,6 +41,7 @@ class StoreScheduleRequest extends FormRequest
                 'required', 'integer',
                 Rule::exists('vehicle_types', 'id')->where('status', 'active'),
             ],
+            'seat_arrangement_type_id' => 'nullable|integer|exists:seat_arrangement_types,id',
             'fare'   => 'required|numeric|min:0',
             'status' => 'nullable|in:scheduled,in_transit,completed,cancelled',
 

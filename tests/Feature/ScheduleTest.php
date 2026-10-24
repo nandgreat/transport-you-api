@@ -7,6 +7,7 @@ use App\Models\ScheduleGroup;
 use App\Models\Role;
 use App\Models\Route;
 use App\Models\Schedule;
+use App\Models\SeatArrangementType;
 use App\Models\State;
 use App\Models\Status;
 use App\Models\Tenant;
@@ -43,10 +44,19 @@ class ScheduleTest extends TestCase
     private function makeVehicleType(string $name = 'Toyota Hiace'): VehicleType
     {
         $category = VehicleCategory::firstOrCreate(['vehicle_category_name' => 'Bus']);
-        return VehicleType::firstOrCreate(
+        $vehicleType = VehicleType::firstOrCreate(
             ['vehicle_name' => $name, 'vehicle_category_id' => $category->id, 'year' => 2022],
-            ['capacity' => 14, 'status' => 'active']
+            ['status' => 'active']
         );
+
+        // Capacity is derived from the seat arrangement, so attach a default one.
+        $arrangement = SeatArrangementType::firstOrCreate(
+            ['name' => 'Test 14 Seater'],
+            ['number_of_seats' => 14, 'status' => 'active']
+        );
+        $vehicleType->seatArrangementTypes()->syncWithoutDetaching([$arrangement->id => ['is_default' => true]]);
+
+        return $vehicleType;
     }
 
     private function makeTenantWithResources(string $tenantName = 'Fast Travel Ltd'): array
@@ -410,7 +420,7 @@ class ScheduleTest extends TestCase
                  ->assertJsonStructure(['data' => [
                      'id', 'departure_time', 'arrival_time', 'fare', 'status', 'available_seats',
                      'route'        => ['id', 'distance', 'estimated_duration', 'origin', 'destination'],
-                     'vehicle_type' => ['id', 'vehicle_name', 'capacity'],
+                     'vehicle_type' => ['id', 'vehicle_name', 'seat_arrangements'],
                      'operator'     => ['id', 'name'],
                  ]]);
     }

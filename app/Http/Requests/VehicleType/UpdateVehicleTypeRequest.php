@@ -16,8 +16,10 @@ class UpdateVehicleTypeRequest extends FormRequest
         return [
             'vehicle_name'        => 'sometimes|required|string|max:150',
             'image_url'           => 'sometimes|nullable|string|max:2048',
-            'capacity'            => 'sometimes|required|integer|min:1|max:500',
             'vehicle_category_id' => 'sometimes|required|integer|exists:vehicle_categories,id',
+            'seat_arrangement_type_ids'   => 'sometimes|nullable|array',
+            'seat_arrangement_type_ids.*' => 'integer|distinct|exists:seat_arrangement_types,id',
+            'default_seat_arrangement_type_id' => 'sometimes|nullable|integer|exists:seat_arrangement_types,id',
             'status'              => 'sometimes|required|in:active,inactive',
             'year'                => 'sometimes|required|integer|min:1900|max:' . (date('Y') + 1),
         ];

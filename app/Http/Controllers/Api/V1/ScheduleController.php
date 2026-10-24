@@ -68,7 +68,7 @@ class ScheduleController extends Controller
                 'group'           => $this->formatGroup($result['group']),
                 'schedules_count' => $result['schedules']->count(),
                 'schedules'       => $result['schedules']->map(fn($s) => $this->formatSchedule(
-                    $s->load(['route.origin.state', 'route.destination.state', 'vehicleType.category', 'tenant',
+                    $s->load(['route.origin.state', 'route.destination.state', 'vehicleType.category', 'vehicleType.seatArrangementTypes', 'seatArrangement', 'tenant',
                               'returnSchedule.route.origin.state', 'returnSchedule.route.destination.state', 'returnSchedule.vehicleType.category'])
                 )),
             ];
@@ -131,6 +131,41 @@ class ScheduleController extends Controller
         ];
     }
 
+    private function formatVehicleType(?\App\Models\VehicleType $vt): ?array
+    {
+        if (! $vt) return null;
+
+        return [
+            'id'                => $vt->id,
+            'vehicle_name'      => $vt->vehicle_name,
+            'year'              => $vt->year,
+            'image_url'         => $vt->image_url,
+            'category'          => $vt->category,
+            'seat_arrangements' => $vt->relationLoaded('seatArrangementTypes')
+                ? $vt->seatArrangementTypes->map(fn ($sa) => $this->formatSeatArrangement($sa, (bool) $sa->pivot->is_default))->values()
+                : [],
+        ];
+    }
+
+    private function formatSeatArrangement(?\App\Models\SeatArrangementType $sa, ?bool $isDefault = null): ?array
+    {
+        if (! $sa) return null;
+
+        $out = [
+            'id'                => $sa->id,
+            'name'              => $sa->name,
+            'number_of_seats'   => $sa->number_of_seats,
+            'arrangement_image' => $sa->arrangement_image,
+            'description'       => $sa->description,
+        ];
+
+        if ($isDefault !== null) {
+            $out['is_default'] = $isDefault;
+        }
+
+        return $out;
+    }
+
     private function formatGroup(\App\Models\ScheduleGroup $group): array
     {
         $vt = $group->vehicleType;
@@ -144,17 +179,14 @@ class ScheduleController extends Controller
             'arrival_time'   => $group->arrival_time,
             'fare'           => $group->fare,
             'status'         => $group->status,
+            'capacity'       => ($group->seatArrangement ?? $vt?->defaultSeatArrangementType())?->number_of_seats,
+            'seat_arrangement' => $this->formatSeatArrangement($group->seatArrangement ?? $vt?->defaultSeatArrangementType()),
             'route'          => $this->formatRoute($group->route),
-            'vehicle_type'   => $vt ? [
-                'id'           => $vt->id,
-                'vehicle_name' => $vt->vehicle_name,
-                'capacity'     => $vt->capacity,
-                'year'         => $vt->year,
-                'category'     => $vt->category,
-            ] : null,
+            'vehicle_type'   => $this->formatVehicleType($vt),
             'operator' => $group->tenant ? [
                 'id'   => $group->tenant->id,
                 'name' => $group->tenant->name,
+                'logo_url' => $group->tenant->logo_url,
             ] : null,
         ];
     }
@@ -169,20 +201,18 @@ class ScheduleController extends Controller
             'arrival_time'    => $schedule->arrival_time,
             'fare'            => $schedule->fare,
             'status'          => $schedule->status,
+            'seat_arrangement'       => $this->formatSeatArrangement($schedule->resolveSeatArrangement()),
+            'seat_arrangement_label' => $schedule->seatArrangementLabel(),
+            'capacity'        => $schedule->capacity(),
             'available_seats' => $schedule->availableSeats(),
+            'seats'           => $schedule->seatMap(),
             'is_round_trip'   => $schedule->return_schedule_id !== null,
             'route'           => $this->formatRoute($schedule->route),
-            'vehicle_type'    => $vt ? [
-                'id'           => $vt->id,
-                'vehicle_name' => $vt->vehicle_name,
-                'capacity'     => $vt->capacity,
-                'year'         => $vt->year,
-                'image_url'    => $vt->image_url,
-                'category'     => $vt->category,
-            ] : null,
+            'vehicle_type'    => $this->formatVehicleType($vt),
             'operator' => $schedule->relationLoaded('tenant') && $schedule->tenant ? [
                 'id'   => $schedule->tenant->id,
                 'name' => $schedule->tenant->name,
+                'logo_url' => $schedule->tenant->logo_url,
             ] : null,
         ];
 
