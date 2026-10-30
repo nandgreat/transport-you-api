@@ -17,6 +17,8 @@ use App\Http\Controllers\Api\V1\VehicleClassController;
 use App\Http\Controllers\Api\V1\VehicleCategoryController;
 use App\Http\Controllers\Api\V1\VehicleTypeController;
 use App\Http\Controllers\Api\V1\SeatArrangementTypeController;
+use App\Http\Controllers\Api\V1\ScheduledTripController;
+use App\Http\Controllers\Api\V1\PaymentController;
 
 /*
 |--------------------------------------------------------------------------
@@ -32,7 +34,9 @@ use App\Http\Controllers\Api\V1\SeatArrangementTypeController;
 Route::prefix('v1')->group(function () {
     // Public trip search — no auth required
     Route::get('/trips', [TripController::class, 'index']);
+    Route::get('/trips/recurring/{group}/seats', [TripController::class, 'recurringSeats']);
     Route::get('/trips/{id}', [TripController::class, 'show']);
+    Route::get('/trips/{id}/seats', [TripController::class, 'seats']);
 
     Route::apiResource('locations', LocationController::class);
 
@@ -42,6 +46,9 @@ Route::prefix('v1')->group(function () {
     Route::post('/verify-otp', [AuthController::class, 'verifyOtp']);
     Route::post('/resend-otp', [AuthController::class, 'resendOtp']);
     Route::post('/tenant-onboarding', [TenantOnboardingController::class, 'onboard']);
+
+    // Paystack redirects the customer's browser here after payment (public).
+    Route::get('/payments/callback', [PaymentController::class, 'callback']);
 
     Route::middleware('auth:api')->group(function () {
         Route::get('/user', [AuthController::class, 'user']);
@@ -55,6 +62,12 @@ Route::prefix('v1')->group(function () {
         Route::apiResource('vehicles', VehicleController::class);
         Route::apiResource('routes', RouteController::class);
         Route::apiResource('schedules', ScheduleController::class);
+
+        // Scheduled trips — concrete dated trips (one-off + materialised recurring)
+        Route::get('scheduled-trips', [ScheduledTripController::class, 'index']);
+        Route::get('scheduled-trips/{id}', [ScheduledTripController::class, 'show']);
+        Route::patch('scheduled-trips/{id}/status', [ScheduledTripController::class, 'updateStatus']);
+        Route::patch('scheduled-trips/{id}/cancel', [ScheduledTripController::class, 'cancel']);
         Route::apiResource('states', StateController::class);
         Route::apiResource('vehicle-classes', VehicleClassController::class);
         Route::apiResource('vehicle-categories', VehicleCategoryController::class);
@@ -69,5 +82,9 @@ Route::prefix('v1')->group(function () {
         Route::get('bookings/{id}', [BookingController::class, 'show']);
         Route::patch('bookings/{id}/status', [BookingController::class, 'updateStatus']);
         Route::patch('bookings/{id}/cancel', [BookingController::class, 'cancel']);
+
+        // Payments (Paystack)
+        Route::post('bookings/{id}/pay', [PaymentController::class, 'initialize']);
+        Route::get('payments/verify/{reference}', [PaymentController::class, 'verify']);
     });
 });

@@ -73,6 +73,15 @@ return [
             'replace_placeholders' => true,
         ],
 
+        // Rotating daily log of every API request (method, path, status, timing).
+        'api' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/api.log'),
+            'level' => env('API_LOG_LEVEL', 'info'),
+            'days' => env('API_LOG_DAYS', 30),
+            'replace_placeholders' => true,
+        ],
+
         'slack' => [
             'driver' => 'slack',
             'url' => env('LOG_SLACK_WEBHOOK_URL'),

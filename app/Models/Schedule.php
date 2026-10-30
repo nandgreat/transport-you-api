@@ -19,6 +19,7 @@ class Schedule extends Model
         'route_id',
         'vehicle_type_id',
         'seat_arrangement_type_id',
+        'seat_selection_enabled',
         'departure_time',
         'arrival_time',
         'fare',
@@ -97,6 +98,7 @@ class Schedule extends Model
         'departure_time' => 'datetime',
         'arrival_time' => 'datetime',
         'fare' => 'decimal:2',
+        'seat_selection_enabled' => 'boolean',
     ];
 
     public function scheduleGroup()
@@ -134,8 +136,20 @@ class Schedule extends Model
         return $this->hasMany(Booking::class);
     }
 
+    /**
+     * Total seats consumed by active bookings, counted by passenger. Works
+     * whether or not seat selection is enabled (a passenger always takes a seat).
+     */
+    public function bookedSeatCount(): int
+    {
+        return (int) $this->bookings()
+            ->whereIn('status', ['pending', 'confirmed'])
+            ->get(['passengers'])
+            ->sum(fn ($b) => count($b->passengers ?? []));
+    }
+
     public function availableSeats(): int
     {
-        return max(0, $this->capacity() - count($this->takenSeats()));
+        return max(0, $this->capacity() - $this->bookedSeatCount());
     }
 }

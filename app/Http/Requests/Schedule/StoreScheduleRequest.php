@@ -12,6 +12,37 @@ class StoreScheduleRequest extends FormRequest
         return $this->user() && ($this->user()->isSuperAdmin() || $this->user()->tenant_id !== null);
     }
 
+    /**
+     * Normalise one-off datetime fields to `Y-m-d H:i:s` so clients may send
+     * ISO / datetime-local values (e.g. "2026-10-28T12:00"). Recurring mode
+     * uses plain `H:i` times, so it is left untouched.
+     */
+    protected function prepareForValidation(): void
+    {
+        if ($this->filled('start_date')) {
+            return;
+        }
+
+        foreach (['departure_time', 'arrival_time', 'return_departure_time', 'return_arrival_time'] as $field) {
+            if ($this->filled($field) && ($normalised = $this->normaliseDateTime($this->input($field)))) {
+                $this->merge([$field => $normalised]);
+            }
+        }
+    }
+
+    private function normaliseDateTime($value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        try {
+            return \Carbon\Carbon::parse($value)->format('Y-m-d H:i:s');
+        } catch (\Throwable $e) {
+            return null; // leave the original value so validation reports the error
+        }
+    }
+
     public function rules(): array
     {
         $tenantId = $this->user()->isSuperAdmin() ? ($this->input('tenant_id') ?? null) : $this->user()->tenant_id;
@@ -42,6 +73,7 @@ class StoreScheduleRequest extends FormRequest
                 Rule::exists('vehicle_types', 'id')->where('status', 'active'),
             ],
             'seat_arrangement_type_id' => 'nullable|integer|exists:seat_arrangement_types,id',
+            'seat_selection_enabled'   => 'nullable|boolean',
             'fare'   => 'required|numeric|min:0',
             'status' => 'nullable|in:scheduled,in_transit,completed,cancelled',
 

@@ -122,9 +122,10 @@ class BookingController extends Controller
             'fare'           => $schedule->fare,
             'status'         => $schedule->status,
             'seat_arrangement_label' => $schedule->seatArrangementLabel(),
+            'seat_selection_enabled' => (bool) $schedule->seat_selection_enabled,
             'capacity'        => $schedule->capacity(),
             'available_seats' => $schedule->availableSeats(),
-            'seats'           => $schedule->seatMap(),
+            'seats'           => $schedule->seat_selection_enabled ? $schedule->seatMap() : [],
             'route' => $route ? [
                 'origin'      => $this->formatLocation($route->origin),
                 'destination' => $this->formatLocation($route->destination),

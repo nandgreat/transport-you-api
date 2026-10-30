@@ -21,6 +21,7 @@ class ScheduleService
             'returnSchedule.route.origin.state',
             'returnSchedule.route.destination.state',
             'returnSchedule.vehicleType.category',
+            'scheduleGroup',
         ]);
     }
 
@@ -44,7 +45,47 @@ class ScheduleService
         )->orderBy('departure_time')->paginate($perPage);
     }
 
-    public function searchAvailableTrips(array $filters = [], int $perPage = 15)
+    /**
+     * Standalone one-off schedules (excludes recurring instances that belong to
+     * a group — those are represented by the group row instead).
+     */
+    public function getStandaloneSchedules(?int $tenantId, array $filters = []): \Illuminate\Support\Collection
+    {
+        return $this->applyFilters(
+            $this->withRelations()
+                ->whereNull('schedule_group_id')
+                ->when($tenantId, fn($q) => $q->where('tenant_id', $tenantId)),
+            $filters
+        )->orderByDesc('created_at')->get();
+    }
+
+    /** Recurring schedule patterns (groups), for the unified management list. */
+    public function getScheduleGroups(?int $tenantId, array $filters = []): \Illuminate\Support\Collection
+    {
+        return ScheduleGroup::with([
+            'route.origin.state',
+            'route.destination.state',
+            'vehicleType.category',
+            'vehicleType.seatArrangementTypes',
+            'seatArrangement',
+            'tenant',
+        ])
+            ->when($tenantId, fn($q) => $q->where('tenant_id', $tenantId))
+            ->when($filters['origin_city'] ?? null, fn($q, $v) =>
+                $q->whereHas('route.origin', fn($r) => $r->whereRaw('LOWER(city) = ?', [strtolower(trim($v))])))
+            ->when($filters['destination_city'] ?? null, fn($q, $v) =>
+                $q->whereHas('route.destination', fn($r) => $r->whereRaw('LOWER(city) = ?', [strtolower(trim($v))])))
+            ->orderByDesc('created_at')
+            ->get();
+    }
+
+    /**
+     * Concrete (materialised) trips matching the search: one-off schedules and
+     * recurring instances that have already been booked into existence.
+     *
+     * @return \Illuminate\Support\Collection<int, Schedule>
+     */
+    public function concreteTrips(array $filters = []): \Illuminate\Support\Collection
     {
         return $this->applyFilters(
             $this->withRelations()
@@ -55,7 +96,60 @@ class ScheduleService
                     $q->whereHas('returnSchedule', fn($r) => $r->whereDate('departure_time', $v))
                 ),
             $filters
-        )->orderBy('departure_time')->paginate($perPage);
+        )->orderBy('departure_time')->get();
+    }
+
+    /**
+     * Virtual trips expanded from recurring patterns for the search window.
+     * A pattern matches when the searched date (or, with no date, the window)
+     * falls inside its interval on a selected weekday. Occurrences already
+     * materialised and still scheduled are skipped (the concrete list covers them).
+     *
+     * @return \Illuminate\Support\Collection<int, array{group: ScheduleGroup, date: string}>
+     */
+    public function recurringOccurrences(array $filters = []): \Illuminate\Support\Collection
+    {
+        $date  = $filters['departure_date'] ?? null;
+        $today = Carbon::today();
+
+        $groups = ScheduleGroup::with([
+                'route.origin.state', 'route.destination.state',
+                'vehicleType.category', 'vehicleType.seatArrangementTypes', 'seatArrangement', 'tenant',
+            ])
+            ->where('status', 'active')
+            ->whereDate('end_date', '>=', $today)
+            ->when($filters['tenant_id'] ?? null,       fn($q, $v) => $q->where('tenant_id', $v))
+            ->when($filters['origin_id'] ?? null,       fn($q, $v) => $q->whereHas('route', fn($r) => $r->where('origin_id', $v)))
+            ->when($filters['destination_id'] ?? null,  fn($q, $v) => $q->whereHas('route', fn($r) => $r->where('destination_id', $v)))
+            ->when($filters['origin_city'] ?? null,      fn($q, $v) => $q->whereHas('route.origin',      fn($r) => $r->whereRaw('LOWER(city) = ?', [strtolower(trim($v))])))
+            ->when($filters['destination_city'] ?? null, fn($q, $v) => $q->whereHas('route.destination', fn($r) => $r->whereRaw('LOWER(city) = ?', [strtolower(trim($v))])))
+            ->get();
+
+        $out = collect();
+
+        foreach ($groups as $group) {
+            if ($date) {
+                $d = Carbon::parse($date);
+                if ($d->lt($today) || ! $group->occursOn($d)) {
+                    continue;
+                }
+                $dates = collect([$d]);
+            } else {
+                $next  = $group->nextOccurrence($today);
+                $dates = $next ? collect([$next]) : collect();
+            }
+
+            foreach ($dates as $d) {
+                $ds  = $d->format('Y-m-d');
+                $mat = $group->materializedScheduleFor($ds);
+                if ($mat && $mat->status === 'scheduled') {
+                    continue; // already a concrete trip
+                }
+                $out->push(['group' => $group, 'date' => $ds]);
+            }
+        }
+
+        return $out;
     }
 
     public function createRecurringSchedules(?int $tenantId, array $data): array
@@ -73,6 +167,7 @@ class ScheduleService
             'route_id'         => $data['route_id'],
             'vehicle_type_id'  => $data['vehicle_type_id'],
             'seat_arrangement_type_id' => $data['seat_arrangement_type_id'] ?? null,
+            'seat_selection_enabled'   => $data['seat_selection_enabled'] ?? true,
             'start_date'       => $data['start_date'],
             'end_date'        => $data['end_date'],
             'days_of_week'    => $data['days_of_week'],
@@ -94,6 +189,7 @@ class ScheduleService
                 'route_id'         => $returnRouteId,
                 'vehicle_type_id'  => $data['vehicle_type_id'],
                 'seat_arrangement_type_id' => $data['seat_arrangement_type_id'] ?? null,
+                'seat_selection_enabled'   => $data['seat_selection_enabled'] ?? true,
                 'start_date'       => $data['start_date'],
                 'end_date'        => $data['end_date'],
                 'days_of_week'    => $data['days_of_week'],
@@ -104,76 +200,43 @@ class ScheduleService
             ]);
         }
 
-        $schedules = $this->generateSchedulesForGroup($group, $returnGroup);
+        // Recurring schedules are stored as a single pattern record — no per-day
+        // schedule rows are created. Concrete trips are materialised lazily when
+        // a customer books a specific date (see materializeOccurrence()).
 
         $group->load(['route.origin.state', 'route.destination.state', 'vehicleType.category', 'vehicleType.seatArrangementTypes', 'seatArrangement', 'tenant']);
         $returnGroup?->load(['route.origin.state', 'route.destination.state', 'vehicleType.category', 'vehicleType.seatArrangementTypes', 'seatArrangement', 'tenant']);
 
-        return ['group' => $group, 'return_group' => $returnGroup, 'schedules' => $schedules];
+        return ['group' => $group, 'return_group' => $returnGroup];
     }
 
-    public function generateSchedulesForGroup(ScheduleGroup $group, ?ScheduleGroup $returnGroup = null): \Illuminate\Support\Collection
+    /**
+     * Turn a recurring pattern occurrence into a concrete schedule (scheduled
+     * trip). Idempotent per (pattern, date) — reuses an existing instance.
+     */
+    public function materializeOccurrence(ScheduleGroup $group, string $date): Schedule
     {
-        $selectedDays = collect($group->days_of_week)->map(fn($d) => strtolower($d));
-        $period       = CarbonPeriod::create($group->start_date, $group->end_date);
-        $schedules    = collect();
+        $dateC = Carbon::parse($date);
 
-        foreach ($period as $date) {
-            if (! $selectedDays->contains(strtolower($date->englishDayOfWeek))) {
-                continue;
-            }
+        abort_if(! $group->occursOn($dateC), 422, 'This recurring schedule does not run on the selected date.');
+        abort_if($dateC->copy()->startOfDay()->lt(Carbon::today()), 422, 'Cannot book a trip in the past.');
 
-            $departure = Carbon::parse($date->format('Y-m-d') . ' ' . $group->departure_time);
-            $arrival   = $this->resolveArrival($date, $group->arrival_time, $departure);
-
-            $outbound = Schedule::create([
-                'tenant_id'         => $group->tenant_id,
+        return Schedule::firstOrCreate(
+            [
                 'schedule_group_id' => $group->id,
-                'route_id'          => $group->route_id,
-                'vehicle_type_id'   => $group->vehicle_type_id,
+                'departure_time'    => $group->departureAt($dateC),
+            ],
+            [
+                'tenant_id'                => $group->tenant_id,
+                'route_id'                 => $group->route_id,
+                'vehicle_type_id'          => $group->vehicle_type_id,
                 'seat_arrangement_type_id' => $group->seat_arrangement_type_id,
-                'departure_time'    => $departure,
-                'arrival_time'      => $arrival,
-                'fare'              => $group->fare,
-                'status'            => 'scheduled',
-            ]);
-
-            if ($returnGroup) {
-                $retDeparture = Carbon::parse($date->format('Y-m-d') . ' ' . $returnGroup->departure_time);
-                $retArrival   = $this->resolveArrival($date, $returnGroup->arrival_time, $retDeparture);
-
-                $returnSchedule = Schedule::create([
-                    'tenant_id'         => $returnGroup->tenant_id,
-                    'schedule_group_id' => $returnGroup->id,
-                    'route_id'          => $returnGroup->route_id,
-                    'vehicle_type_id'   => $returnGroup->vehicle_type_id,
-                    'seat_arrangement_type_id' => $returnGroup->seat_arrangement_type_id,
-                    'departure_time'    => $retDeparture,
-                    'arrival_time'      => $retArrival,
-                    'fare'              => $returnGroup->fare,
-                    'status'            => 'scheduled',
-                ]);
-
-                $outbound->update(['return_schedule_id' => $returnSchedule->id]);
-                $outbound->return_schedule_id = $returnSchedule->id;
-            }
-
-            $schedules->push($outbound);
-        }
-
-        return $schedules;
-    }
-
-    private function resolveArrival(\Carbon\Carbon $date, ?string $arrivalTime, Carbon $departure): ?Carbon
-    {
-        if (! $arrivalTime) {
-            return null;
-        }
-        $arrival = Carbon::parse($date->format('Y-m-d') . ' ' . $arrivalTime);
-        if ($arrival->lte($departure)) {
-            $arrival->addDay();
-        }
-        return $arrival;
+                'seat_selection_enabled'   => $group->seat_selection_enabled ?? true,
+                'arrival_time'             => $group->arrivalAt($dateC),
+                'fare'                     => $group->fare,
+                'status'                   => 'scheduled',
+            ]
+        );
     }
 
     public function createSchedule(?int $tenantId, array $data)
@@ -187,7 +250,7 @@ class ScheduleService
         $this->assertCapacityDeterminable($data['vehicle_type_id'] ?? null, $data['seat_arrangement_type_id'] ?? null);
 
         $scheduleData = array_intersect_key($data, array_flip([
-            'tenant_id', 'route_id', 'vehicle_type_id', 'seat_arrangement_type_id',
+            'tenant_id', 'route_id', 'vehicle_type_id', 'seat_arrangement_type_id', 'seat_selection_enabled',
             'departure_time', 'arrival_time', 'fare', 'status',
         ]));
 
@@ -202,6 +265,7 @@ class ScheduleService
         return $schedule->load([
             'route.origin.state', 'route.destination.state', 'vehicleType.category', 'vehicleType.seatArrangementTypes', 'seatArrangement', 'tenant',
             'returnSchedule.route.origin.state', 'returnSchedule.route.destination.state', 'returnSchedule.vehicleType.category',
+            'scheduleGroup',
         ]);
     }
 
@@ -217,6 +281,7 @@ class ScheduleService
             'route_id'         => $returnRouteId,
             'vehicle_type_id'  => $outbound->vehicle_type_id,
             'seat_arrangement_type_id' => $outbound->seat_arrangement_type_id,
+            'seat_selection_enabled'   => $outbound->seat_selection_enabled,
             'departure_time'   => $data['return_departure_time'],
             'arrival_time'     => $data['return_arrival_time'] ?? null,
             'fare'             => $data['return_fare'] ?? $outbound->fare,
@@ -229,6 +294,7 @@ class ScheduleService
         return Schedule::with([
             'route.origin.state', 'route.destination.state', 'vehicleType.category', 'vehicleType.seatArrangementTypes', 'seatArrangement', 'tenant',
             'returnSchedule.route.origin.state', 'returnSchedule.route.destination.state', 'returnSchedule.vehicleType.category',
+            'scheduleGroup',
         ])->when($tenantId, fn($q) => $q->where('tenant_id', $tenantId))->findOrFail($id);
     }
 
@@ -254,7 +320,8 @@ class ScheduleService
         }
 
         $scheduleData = array_intersect_key($data, array_flip([
-            'route_id', 'vehicle_type_id', 'seat_arrangement_type_id', 'departure_time', 'arrival_time', 'fare', 'status',
+            'route_id', 'vehicle_type_id', 'seat_arrangement_type_id', 'seat_selection_enabled',
+            'departure_time', 'arrival_time', 'fare', 'status',
         ]));
 
         $schedule->update($scheduleData);

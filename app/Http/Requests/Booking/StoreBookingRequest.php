@@ -16,18 +16,29 @@ class StoreBookingRequest extends FormRequest
         $isTenant = $this->user()->tenant_id !== null || $this->user()->isSuperAdmin();
 
         $rules = [
-            'schedule_id'  => 'required|integer|exists:schedules,id',
+            // Target trip: a concrete schedule, OR a recurring pattern + date
+            // (which is materialised into a scheduled trip on booking).
+            'schedule_id'        => 'nullable|integer|exists:schedules,id|required_without:schedule_group_id',
+            'schedule_group_id'  => 'nullable|integer|exists:schedule_groups,id|required_without:schedule_id',
+            'travel_date'        => 'nullable|date_format:Y-m-d|required_with:schedule_group_id',
+
             'passengers'   => 'required|array|min:1',
             'passengers.*.name'        => 'required|string|max:100',
-            'passengers.*.phone'       => 'nullable|string|max:20',
+            'passengers.*.phone'       => 'required|string|max:20',
             'passengers.*.email'       => 'nullable|email|max:100',
-            'passengers.*.seat_number' => 'required|integer|min:1',
+            // Required only when the schedule has seat selection enabled; enforced in BookingService.
+            'passengers.*.seat_number' => 'nullable|integer|min:1',
             'notes'        => 'nullable|string|max:500',
 
-            // Round trip — optional
-            'is_round_trip'        => 'boolean',
-            'return_schedule_id'   => 'nullable|integer|exists:schedules,id|required_if:is_round_trip,true',
+            'is_round_trip' => 'boolean',
         ];
+
+        // Round trip — return leg as a concrete schedule or a recurring pattern + date.
+        if ($this->boolean('is_round_trip')) {
+            $rules['return_schedule_id']       = 'nullable|integer|exists:schedules,id|required_without:return_schedule_group_id';
+            $rules['return_schedule_group_id'] = 'nullable|integer|exists:schedule_groups,id|required_without:return_schedule_id';
+            $rules['return_travel_date']       = 'nullable|date_format:Y-m-d|required_with:return_schedule_group_id';
+        }
 
         // Tenants can explicitly set the status; customers are always forced to pending
         if ($isTenant) {
@@ -41,9 +52,11 @@ class StoreBookingRequest extends FormRequest
     {
         return [
             'passengers.required'        => 'At least one passenger is required.',
-            'passengers.*.name.required' => 'Each passenger must have a name.',
-            'passengers.*.seat_number.required' => 'Each passenger must select a seat number.',
-            'return_schedule_id.required_if' => 'A return schedule is required for round trip bookings.',
+            'passengers.*.name.required'  => 'Each passenger must have a name.',
+            'passengers.*.phone.required' => 'Each passenger must have a phone number.',
+            'schedule_id.required_without'       => 'Provide a schedule_id, or a schedule_group_id with travel_date.',
+            'schedule_group_id.required_without' => 'Provide a schedule_id, or a schedule_group_id with travel_date.',
+            'travel_date.required_with'          => 'travel_date is required when booking a recurring schedule.',
         ];
     }
 }

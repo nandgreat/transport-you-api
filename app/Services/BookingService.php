@@ -4,10 +4,35 @@ namespace App\Services;
 
 use App\Models\Booking;
 use App\Models\Schedule;
+use App\Models\ScheduleGroup;
 use Illuminate\Support\Facades\DB;
 
 class BookingService
 {
+    public function __construct(protected ScheduleService $scheduleService) {}
+
+    /**
+     * Resolve the target schedule for a (return) booking leg: an existing
+     * concrete schedule, or a recurring pattern + date materialised into one.
+     */
+    private function resolveSchedule(array $data, string $prefix = ''): Schedule
+    {
+        $scheduleId = $data[$prefix . 'schedule_id'] ?? null;
+        $groupId    = $data[$prefix . 'schedule_group_id'] ?? null;
+        $date       = $data[$prefix . 'travel_date'] ?? null;
+
+        if ($scheduleId) {
+            return Schedule::with(['route', 'vehicleType.seatArrangementTypes', 'seatArrangement'])->findOrFail($scheduleId);
+        }
+
+        abort_if(! $groupId || ! $date, 422, 'Provide a schedule_id, or a schedule_group_id with travel_date.');
+
+        $group    = ScheduleGroup::with(['vehicleType.seatArrangementTypes', 'seatArrangement'])->findOrFail($groupId);
+        $schedule = $this->scheduleService->materializeOccurrence($group, $date);
+
+        return $schedule->load(['route', 'vehicleType.seatArrangementTypes', 'seatArrangement']);
+    }
+
     private function bookingWith(): array
     {
         return [
@@ -49,33 +74,33 @@ class BookingService
     public function createBooking(int $userId, array $data): Booking
     {
         return DB::transaction(function () use ($userId, $data) {
-            $schedule   = Schedule::with(['route', 'vehicleType.seatArrangementTypes', 'seatArrangement'])->findOrFail($data['schedule_id']);
+            $schedule   = $this->resolveSchedule($data);
             $passengers = $data['passengers'];
             $seats      = count($passengers);
 
-            $this->assertSeatsSelectable($schedule, $this->seatNumbers($passengers));
+            $outboundPassengers = $this->prepareSeats($schedule, $passengers);
 
             $outbound = Booking::create([
                 'tenant_id'    => $schedule->tenant_id,
                 'user_id'      => $userId,
                 'schedule_id'  => $schedule->id,
                 'total_amount' => $schedule->fare * $seats,
-                'passengers'   => $passengers,
+                'passengers'   => $outboundPassengers,
                 'notes'        => $data['notes'] ?? null,
                 'status'       => $data['status'] ?? 'pending',
             ]);
 
-            if (! empty($data['is_round_trip']) && ! empty($data['return_schedule_id'])) {
-                $returnSchedule = Schedule::with(['route', 'vehicleType.seatArrangementTypes', 'seatArrangement'])->findOrFail($data['return_schedule_id']);
+            if (! empty($data['is_round_trip']) && (($data['return_schedule_id'] ?? null) || ($data['return_schedule_group_id'] ?? null))) {
+                $returnSchedule = $this->resolveSchedule($data, 'return_');
 
-                $this->assertSeatsSelectable($returnSchedule, $this->seatNumbers($passengers));
+                $returnPassengers = $this->prepareSeats($returnSchedule, $passengers);
 
                 $returnBooking = Booking::create([
                     'tenant_id'    => $returnSchedule->tenant_id,
                     'user_id'      => $userId,
                     'schedule_id'  => $returnSchedule->id,
                     'total_amount' => $returnSchedule->fare * $seats,
-                    'passengers'   => $passengers,
+                    'passengers'   => $returnPassengers,
                     'notes'        => $data['notes'] ?? null,
                     'status'       => $data['status'] ?? 'pending',
                 ]);
@@ -119,6 +144,48 @@ class BookingService
         }
 
         return $booking->load($this->bookingWith());
+    }
+
+    /**
+     * Validate a booking's passengers against a schedule and return the
+     * passenger list to persist.
+     *
+     * Capacity (by headcount) is always checked. When the schedule has seat
+     * selection enabled, every passenger must pick a valid, free, unique seat;
+     * when it is disabled, any supplied seat numbers are dropped.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function prepareSeats(Schedule $schedule, array $passengers): array
+    {
+        $requested = count($passengers);
+        $available = $schedule->availableSeats();
+
+        abort_if(
+            $available < $requested,
+            422,
+            "Not enough seats available. Requested: {$requested}, Available: {$available}."
+        );
+
+        if (! $schedule->seat_selection_enabled) {
+            // Seat selection is off for this schedule — ignore any seat numbers.
+            return array_map(function ($p) {
+                unset($p['seat_number']);
+                return $p;
+            }, $passengers);
+        }
+
+        $seatNumbers = $this->seatNumbers($passengers);
+
+        abort_if(
+            count(array_filter($seatNumbers, fn ($n) => $n > 0)) !== $requested,
+            422,
+            'Seat selection is required for this schedule: every passenger must choose a seat.'
+        );
+
+        $this->assertSeatsSelectable($schedule, $seatNumbers);
+
+        return $passengers;
     }
 
     /**

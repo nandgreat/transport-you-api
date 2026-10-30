@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Services\ScheduleService;
+use Carbon\Carbon;
 use App\Models\Location;
 use App\Models\ScheduleGroup;
 use App\Models\Role;
@@ -531,90 +533,87 @@ class ScheduleTest extends TestCase
 
         $response->assertStatus(201)
                  ->assertJsonStructure(['data' => [
-                     'group'           => ['id', 'start_date', 'end_date', 'days_of_week', 'departure_time', 'fare', 'route', 'vehicle_type', 'operator'],
-                     'schedules_count',
-                     'schedules',
+                     'group' => ['id', 'start_date', 'end_date', 'days_of_week', 'departure_time', 'fare', 'route', 'vehicle_type', 'operator'],
                  ]]);
 
+        // A recurring schedule is a single pattern record — no per-day schedules.
         $this->assertDatabaseHas('schedule_groups', ['tenant_id' => $tenant->id, 'route_id' => $route->id]);
+        $this->assertDatabaseCount('schedule_groups', 1);
+        $this->assertDatabaseCount('schedules', 0);
     }
 
-    public function test_recurring_schedule_generates_correct_occurrences()
+    public function test_recurring_creates_pattern_without_per_day_schedules()
     {
         ['user' => $user, 'route' => $route, 'vehicleType' => $vehicleType] = $this->makeTenantWithResources();
 
         Passport::actingAs($user);
 
-        // Use a fixed range: Mon 2026-07-06 → Sun 2026-07-12 (Mon, Wed, Fri = 3 occurrences)
-        $response = $this->postJson('/api/v1/schedules', $this->recurringPayload($route->id, $vehicleType->id, [
-            'start_date'   => '2026-07-06',
-            'end_date'     => '2026-07-12',
+        // A full future week with Mon/Wed/Fri selected.
+        $monday = Carbon::today()->next(Carbon::MONDAY);
+        $this->postJson('/api/v1/schedules', $this->recurringPayload($route->id, $vehicleType->id, [
+            'start_date'   => $monday->format('Y-m-d'),
+            'end_date'     => $monday->copy()->addDays(6)->format('Y-m-d'),
             'days_of_week' => ['monday', 'wednesday', 'friday'],
-        ]));
+        ]))->assertStatus(201);
 
-        $response->assertStatus(201)
-                 ->assertJsonPath('data.schedules_count', 3);
+        $this->assertDatabaseCount('schedule_groups', 1);
+        $this->assertDatabaseCount('schedules', 0);
+
+        // The pattern computes its occurrences on demand.
+        $group = ScheduleGroup::first();
+        $this->assertCount(3, $group->occurrenceDatesBetween($group->start_date, $group->end_date));
     }
 
-    public function test_recurring_schedule_respects_selected_days_only()
+    public function test_recurring_pattern_respects_selected_days_only()
     {
         ['user' => $user, 'route' => $route, 'vehicleType' => $vehicleType] = $this->makeTenantWithResources();
 
         Passport::actingAs($user);
 
-        // Only Tuesday in a Mon-Sun range = 1 occurrence
-        $response = $this->postJson('/api/v1/schedules', $this->recurringPayload($route->id, $vehicleType->id, [
-            'start_date'   => '2026-07-06',
-            'end_date'     => '2026-07-12',
+        $monday = Carbon::today()->next(Carbon::MONDAY);
+        $this->postJson('/api/v1/schedules', $this->recurringPayload($route->id, $vehicleType->id, [
+            'start_date'   => $monday->format('Y-m-d'),
+            'end_date'     => $monday->copy()->addDays(6)->format('Y-m-d'),
             'days_of_week' => ['tuesday'],
-        ]));
+        ]))->assertStatus(201);
 
-        $response->assertStatus(201)
-                 ->assertJsonPath('data.schedules_count', 1);
+        $group = ScheduleGroup::first();
+        $this->assertCount(1, $group->occurrenceDatesBetween($group->start_date, $group->end_date));
     }
 
-    public function test_recurring_departure_times_are_set_correctly()
+    public function test_materialising_an_occurrence_sets_departure_time()
     {
-        ['user' => $user, 'route' => $route, 'vehicleType' => $vehicleType] = $this->makeTenantWithResources();
+        ['route' => $route, 'vehicleType' => $vehicleType] = $this->makeTenantWithResources();
 
-        Passport::actingAs($user);
-
-        $response = $this->postJson('/api/v1/schedules', $this->recurringPayload($route->id, $vehicleType->id, [
-            'start_date'     => '2026-07-06', // Monday
-            'end_date'       => '2026-07-06',
-            'days_of_week'   => ['monday'],
-            'departure_time' => '08:30',
-            'arrival_time'   => '20:00',
-        ]));
-
-        $response->assertStatus(201);
-
-        $this->assertDatabaseHas('schedules', [
-            'departure_time' => '2026-07-06 08:30:00',
-            'arrival_time'   => '2026-07-06 20:00:00',
+        $monday = Carbon::today()->next(Carbon::MONDAY);
+        $group  = ScheduleGroup::create([
+            'tenant_id' => $route->tenant_id, 'route_id' => $route->id, 'vehicle_type_id' => $vehicleType->id,
+            'start_date' => $monday, 'end_date' => $monday, 'days_of_week' => ['monday'],
+            'departure_time' => '08:30', 'arrival_time' => '20:00', 'fare' => 5000, 'status' => 'active',
         ]);
+
+        $schedule = app(ScheduleService::class)->materializeOccurrence($group, $monday->format('Y-m-d'));
+
+        $this->assertEquals($monday->format('Y-m-d') . ' 08:30:00', $schedule->departure_time->format('Y-m-d H:i:s'));
+        $this->assertEquals($monday->format('Y-m-d') . ' 20:00:00', $schedule->arrival_time->format('Y-m-d H:i:s'));
+        $this->assertSame($group->id, $schedule->schedule_group_id);
     }
 
-    public function test_overnight_arrival_rolls_to_next_day()
+    public function test_materialising_overnight_arrival_rolls_to_next_day()
     {
-        ['user' => $user, 'route' => $route, 'vehicleType' => $vehicleType] = $this->makeTenantWithResources();
+        ['route' => $route, 'vehicleType' => $vehicleType] = $this->makeTenantWithResources();
 
-        Passport::actingAs($user);
-
-        $response = $this->postJson('/api/v1/schedules', $this->recurringPayload($route->id, $vehicleType->id, [
-            'start_date'     => '2026-07-06', // Monday
-            'end_date'       => '2026-07-06',
-            'days_of_week'   => ['monday'],
-            'departure_time' => '22:00',
-            'arrival_time'   => '06:00', // next day
-        ]));
-
-        $response->assertStatus(201);
-
-        $this->assertDatabaseHas('schedules', [
-            'departure_time' => '2026-07-06 22:00:00',
-            'arrival_time'   => '2026-07-07 06:00:00',
+        $monday = Carbon::today()->next(Carbon::MONDAY);
+        $group  = ScheduleGroup::create([
+            'tenant_id' => $route->tenant_id, 'route_id' => $route->id, 'vehicle_type_id' => $vehicleType->id,
+            'start_date' => $monday, 'end_date' => $monday, 'days_of_week' => ['monday'],
+            'departure_time' => '22:00', 'arrival_time' => '06:00', 'fare' => 5000, 'status' => 'active',
         ]);
+
+        $schedule = app(ScheduleService::class)->materializeOccurrence($group, $monday->format('Y-m-d'));
+
+        $this->assertEquals($monday->format('Y-m-d') . ' 22:00:00', $schedule->departure_time->format('Y-m-d H:i:s'));
+        $this->assertEquals($monday->copy()->addDay()->format('Y-m-d') . ' 06:00:00', $schedule->arrival_time->format('Y-m-d H:i:s'));
     }
 
     public function test_recurring_requires_at_least_one_day_of_week()
@@ -663,17 +662,19 @@ class ScheduleTest extends TestCase
 
         Passport::actingAs($user);
 
+        $monday = Carbon::today()->next(Carbon::MONDAY);
         $this->postJson('/api/v1/schedules', $this->recurringPayload($route->id, $vehicleType->id, [
-            'start_date'   => '2026-07-06',
-            'end_date'     => '2026-07-12',
+            'start_date'   => $monday->format('Y-m-d'),
+            'end_date'     => $monday->copy()->addDays(6)->format('Y-m-d'),
             'days_of_week' => ['monday'],
         ]));
 
         $this->assertDatabaseCount('schedule_groups', 1);
+        $this->assertDatabaseCount('schedules', 0);
 
         $group = ScheduleGroup::first();
         $this->assertEquals(['monday'], $group->days_of_week);
-        $this->assertEquals('2026-07-06', $group->start_date->format('Y-m-d'));
+        $this->assertEquals($monday->format('Y-m-d'), $group->start_date->format('Y-m-d'));
     }
 
     public function test_city_and_date_filters_can_combine()

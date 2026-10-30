@@ -48,13 +48,32 @@ class ScheduleController extends Controller
         $tenantId = $this->resolveTenantId($request, 'tenant_id');
         $filters  = $request->only(['origin_id', 'destination_id', 'origin_city', 'destination_city', 'departure_date', 'status', 'round_trip']);
 
-        $schedules = $this->scheduleService->getSchedules($tenantId, $filters);
+        // Unified management list: standalone one-off schedules + recurring
+        // groups, collapsed into a single table.
+        $rows = collect();
 
-        $schedules->setCollection(
-            $schedules->getCollection()->map(fn($s) => $this->formatSchedule($s))
+        foreach ($this->scheduleService->getStandaloneSchedules($tenantId, $filters) as $s) {
+            $rows->push(['type' => 'one_off'] + $this->formatSchedule($s));
+        }
+
+        foreach ($this->scheduleService->getScheduleGroups($tenantId, $filters) as $g) {
+            $rows->push(['type' => 'recurring'] + $this->formatGroup($g));
+        }
+
+        // Newest first across both sources.
+        $rows = $rows->sortByDesc(fn($r) => (string) ($r['created_at'] ?? ''))->values();
+
+        $perPage = 15;
+        $page    = max(1, (int) $request->input('page', 1));
+        $paginator = new \Illuminate\Pagination\LengthAwarePaginator(
+            $rows->forPage($page, $perPage)->values(),
+            $rows->count(),
+            $perPage,
+            $page,
+            ['path' => $request->url(), 'query' => $request->query()]
         );
 
-        return $this->success($schedules, 'Schedules retrieved successfully');
+        return $this->success($paginator, 'Schedules retrieved successfully');
     }
 
     public function store(StoreScheduleRequest $request)
@@ -64,20 +83,13 @@ class ScheduleController extends Controller
         if ($request->filled('start_date')) {
             $result = $this->scheduleService->createRecurringSchedules($tenantId, $request->validated());
 
-            $response = [
-                'group'           => $this->formatGroup($result['group']),
-                'schedules_count' => $result['schedules']->count(),
-                'schedules'       => $result['schedules']->map(fn($s) => $this->formatSchedule(
-                    $s->load(['route.origin.state', 'route.destination.state', 'vehicleType.category', 'vehicleType.seatArrangementTypes', 'seatArrangement', 'tenant',
-                              'returnSchedule.route.origin.state', 'returnSchedule.route.destination.state', 'returnSchedule.vehicleType.category'])
-                )),
-            ];
+            $response = ['group' => $this->formatGroup($result['group'])];
 
             if ($result['return_group']) {
                 $response['return_group'] = $this->formatGroup($result['return_group']);
             }
 
-            return $this->created($response, 'Recurring schedules created successfully');
+            return $this->created($response, 'Recurring schedule pattern created successfully');
         }
 
         $schedule = $this->scheduleService->createSchedule($tenantId, $request->validated());
@@ -174,11 +186,16 @@ class ScheduleController extends Controller
             'id'             => $group->id,
             'start_date'     => $group->start_date->format('Y-m-d'),
             'end_date'       => $group->end_date->format('Y-m-d'),
+            'schedule_end_date' => $group->end_date->format('Y-m-d'),
             'days_of_week'   => $group->days_of_week,
             'departure_time' => $group->departure_time,
             'arrival_time'   => $group->arrival_time,
             'fare'           => $group->fare,
             'status'         => $group->status,
+            'is_round_trip'  => false,
+            'created_at'     => $group->created_at?->toISOString() ?? (string) $group->created_at,
+            'updated_at'     => $group->updated_at?->toISOString() ?? (string) $group->updated_at,
+            'seat_selection_enabled' => (bool) $group->seat_selection_enabled,
             'capacity'       => ($group->seatArrangement ?? $vt?->defaultSeatArrangementType())?->number_of_seats,
             'seat_arrangement' => $this->formatSeatArrangement($group->seatArrangement ?? $vt?->defaultSeatArrangementType()),
             'route'          => $this->formatRoute($group->route),
@@ -203,9 +220,10 @@ class ScheduleController extends Controller
             'status'          => $schedule->status,
             'seat_arrangement'       => $this->formatSeatArrangement($schedule->resolveSeatArrangement()),
             'seat_arrangement_label' => $schedule->seatArrangementLabel(),
+            'seat_selection_enabled' => (bool) $schedule->seat_selection_enabled,
             'capacity'        => $schedule->capacity(),
             'available_seats' => $schedule->availableSeats(),
-            'seats'           => $schedule->seatMap(),
+            'seats'           => $schedule->seat_selection_enabled ? $schedule->seatMap() : [],
             'is_round_trip'   => $schedule->return_schedule_id !== null,
             'route'           => $this->formatRoute($schedule->route),
             'vehicle_type'    => $this->formatVehicleType($vt),
@@ -214,6 +232,12 @@ class ScheduleController extends Controller
                 'name' => $schedule->tenant->name,
                 'logo_url' => $schedule->tenant->logo_url,
             ] : null,
+            'created_at'        => $schedule->created_at?->toISOString() ?? (string) $schedule->created_at,
+            'updated_at'        => $schedule->updated_at?->toISOString() ?? (string) $schedule->updated_at,
+            'days_of_week'      => $schedule->scheduleGroup?->days_of_week ?? null,
+            'schedule_end_date' => $schedule->scheduleGroup?->end_date?->format('Y-m-d') ?? ($schedule->arrival_time ? $schedule->arrival_time->format('Y-m-d') : null),
+            'schedule_group_id' => $schedule->schedule_group_id,
+            'schedule_group'    => $schedule->relationLoaded('scheduleGroup') && $schedule->scheduleGroup ? $this->formatGroup($schedule->scheduleGroup) : null,
         ];
 
         if ($includeReturn && $schedule->relationLoaded('returnSchedule') && $schedule->returnSchedule) {
