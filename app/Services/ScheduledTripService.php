@@ -20,6 +20,7 @@ class ScheduledTripService
         return [
             'route.origin.state', 'route.destination.state',
             'vehicleType.category', 'vehicleType.seatArrangementTypes', 'seatArrangement',
+            'vehicle.vehicleType', 'driver',
             'tenant', 'scheduleGroup',
         ];
     }
@@ -71,7 +72,27 @@ class ScheduledTripService
         }
 
         $trip = $this->get($tenantId, $id);
+
+        // A trip can only start once both a vehicle and a driver are assigned.
+        if ($status === 'ongoing' && (! $trip->vehicle_id || ! $trip->driver_id)) {
+            abort(422, 'Assign a vehicle and a driver before starting this trip.');
+        }
+
+        $previous = $trip->trip_status;
         $trip->update(['trip_status' => $status]);
+
+        // Keep the assigned driver's availability in step with the trip, and
+        // credit a completed trip to the driver's record (once per completion).
+        if ($trip->driver) {
+            if ($status === 'ongoing') {
+                $trip->driver->update(['availability' => 'on_trip']);
+            } elseif ($status === 'completed') {
+                $trip->driver->update(['availability' => 'available']);
+                if ($previous !== 'completed') {
+                    $trip->driver->increment('trips_completed');
+                }
+            }
+        }
 
         return $trip;
     }
@@ -84,8 +105,73 @@ class ScheduledTripService
         $trip->update(['trip_status' => 'cancelled', 'status' => 'cancelled']);
         $trip->bookings()->whereIn('status', ['pending', 'confirmed'])->update(['status' => 'cancelled']);
 
+        // Free up the assigned driver.
+        if ($trip->driver) {
+            $trip->driver->update(['availability' => 'available']);
+        }
+
         // Reload fresh so relations reflect the now-cancelled bookings.
         return $this->get($tenantId, $id);
+    }
+
+    /**
+     * Assign a physical vehicle and a driver to a trip. The vehicle must match
+     * the trip's vehicle type and belong to the tenant (enforced by the request);
+     * here we additionally guard against double-booking a vehicle or driver that
+     * is already committed to another trip over an overlapping time window.
+     */
+    public function assign(?int $tenantId, string $id, int $vehicleId, int $driverId): Schedule
+    {
+        $trip = $this->get($tenantId, $id);
+
+        $this->assertNoConflict($trip, 'vehicle_id', $vehicleId, 'vehicle');
+        $this->assertNoConflict($trip, 'driver_id', $driverId, 'driver');
+
+        $trip->update([
+            'vehicle_id'  => $vehicleId,
+            'driver_id'   => $driverId,
+            'assigned_at' => now(),
+        ]);
+
+        return $this->get($tenantId, $id);
+    }
+
+    /**
+     * Clear the vehicle/driver assignment from a trip.
+     */
+    public function unassign(?int $tenantId, string $id): Schedule
+    {
+        $trip = $this->get($tenantId, $id);
+
+        $trip->update([
+            'vehicle_id'  => null,
+            'driver_id'   => null,
+            'assigned_at' => null,
+        ]);
+
+        return $this->get($tenantId, $id);
+    }
+
+    /**
+     * Reject an assignment when the vehicle or driver is already committed to
+     * another non-cancelled trip whose [departure, arrival] window overlaps.
+     */
+    private function assertNoConflict(Schedule $trip, string $column, int $resourceId, string $label): void
+    {
+        $departure = $trip->departure_time;
+        $arrival   = $trip->arrival_time;
+
+        $conflict = Schedule::where('id', '!=', $trip->id)
+            ->where($column, $resourceId)
+            ->where('status', '!=', 'cancelled')
+            ->when($departure && $arrival, function ($q) use ($departure, $arrival) {
+                // Two windows overlap when each starts before the other ends.
+                $q->where('departure_time', '<', $arrival)
+                  ->where('arrival_time', '>', $departure);
+            })
+            ->exists();
+
+        abort_if($conflict, 422, "The selected {$label} is already assigned to another trip during this time.");
     }
 
     /**

@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\V1\SeatArrangementTypeController;
 use App\Http\Controllers\Api\V1\ScheduledTripController;
 use App\Http\Controllers\Api\V1\PaymentController;
 use App\Http\Controllers\Api\V1\TicketController;
+use App\Http\Controllers\Api\V1\DriverController;
 
 /*
 |--------------------------------------------------------------------------
@@ -61,6 +62,9 @@ Route::prefix('v1')->group(function () {
 
 
         Route::apiResource('vehicles', VehicleController::class);
+        // A driver's trips, bucketed by lifecycle (assigned / ongoing / completed)
+        Route::get('drivers/{id}/trips', [DriverController::class, 'trips']);
+        Route::apiResource('drivers', DriverController::class);
         Route::apiResource('routes', RouteController::class);
         Route::apiResource('schedules', ScheduleController::class);
 
@@ -70,6 +74,9 @@ Route::prefix('v1')->group(function () {
         Route::get('scheduled-trips/{id}/passengers', [ScheduledTripController::class, 'passengers']);
         Route::patch('scheduled-trips/{id}/status', [ScheduledTripController::class, 'updateStatus']);
         Route::patch('scheduled-trips/{id}/cancel', [ScheduledTripController::class, 'cancel']);
+        // Assign / clear the physical vehicle + driver that will run the trip
+        Route::patch('scheduled-trips/{id}/assignment', [ScheduledTripController::class, 'assign']);
+        Route::delete('scheduled-trips/{id}/assignment', [ScheduledTripController::class, 'unassign']);
         Route::apiResource('states', StateController::class);
         Route::apiResource('vehicle-classes', VehicleClassController::class);
         Route::apiResource('vehicle-categories', VehicleCategoryController::class);
@@ -80,6 +87,9 @@ Route::prefix('v1')->group(function () {
 
         // Bookings
         Route::get('bookings', [BookingController::class, 'index']);
+        // Aggregate totals — must precede the /{id} route so "summary" isn't
+        // treated as a booking id.
+        Route::get('bookings/summary', [BookingController::class, 'summary']);
         Route::post('bookings', [BookingController::class, 'store']);
         Route::get('bookings/{id}', [BookingController::class, 'show']);
         Route::patch('bookings/{id}/status', [BookingController::class, 'updateStatus']);

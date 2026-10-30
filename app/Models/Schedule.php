@@ -18,6 +18,9 @@ class Schedule extends Model
         'return_schedule_id',
         'route_id',
         'vehicle_type_id',
+        'vehicle_id',
+        'driver_id',
+        'assigned_at',
         'seat_arrangement_type_id',
         'seat_selection_enabled',
         'departure_time',
@@ -98,6 +101,7 @@ class Schedule extends Model
     protected $casts = [
         'departure_time' => 'datetime',
         'arrival_time' => 'datetime',
+        'assigned_at' => 'datetime',
         'fare' => 'decimal:2',
         'seat_selection_enabled' => 'boolean',
     ];
@@ -130,6 +134,22 @@ class Schedule extends Model
     public function vehicleType()
     {
         return $this->belongsTo(VehicleType::class);
+    }
+
+    /**
+     * The physical vehicle assigned to run this trip (optional until assigned).
+     */
+    public function vehicle()
+    {
+        return $this->belongsTo(Vehicle::class);
+    }
+
+    /**
+     * The driver (a tenant fleet record) assigned to run this trip (optional).
+     */
+    public function driver()
+    {
+        return $this->belongsTo(Driver::class);
     }
 
     public function bookings()

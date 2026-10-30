@@ -68,6 +68,26 @@ class BookingService
             ->paginate($perPage);
     }
 
+    /**
+     * Aggregate booking figures for the dashboard. `total_amount` is the value
+     * of live bookings — cancelled and expired ones carry no value and are
+     * excluded; `confirmed_amount` is the realised revenue.
+     *
+     * @return array{total_bookings:int, total_amount:string, confirmed_amount:string}
+     */
+    public function summary(int $userId, ?int $tenantId, bool $isSuperAdmin): array
+    {
+        $scoped = fn () => Booking::query()
+            ->when(! $isSuperAdmin && $tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
+            ->when(! $isSuperAdmin && ! $tenantId, fn ($q) => $q->where('user_id', $userId));
+
+        return [
+            'total_bookings'   => $scoped()->count(),
+            'total_amount'     => (string) $scoped()->whereNotIn('status', ['cancelled', 'expired'])->sum('total_amount'),
+            'confirmed_amount' => (string) $scoped()->where('status', 'confirmed')->sum('total_amount'),
+        ];
+    }
+
     public function getBooking(int $userId, ?int $tenantId, bool $isSuperAdmin, string $id): Booking
     {
         return Booking::with($this->bookingWith())

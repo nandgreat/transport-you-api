@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Booking;
+use App\Models\Driver;
 use App\Models\Location;
 use App\Models\Route;
 use App\Models\Schedule;
@@ -11,6 +12,7 @@ use App\Models\State;
 use App\Models\Status;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Models\Vehicle;
 use App\Models\VehicleCategory;
 use App\Models\VehicleType;
 use App\Services\TicketService;
@@ -154,5 +156,110 @@ class ScheduledTripTest extends TestCase
 
         $this->assertEquals('cancelled', $trip->fresh()->status);
         $this->assertEquals('cancelled', $booking->fresh()->status);
+    }
+
+    private function vehicleFor(Schedule $schedule, ?int $vehicleTypeId = null): Vehicle
+    {
+        return Vehicle::create([
+            'tenant_id'           => $schedule->tenant_id,
+            'vehicle_type_id'     => $vehicleTypeId ?? $schedule->vehicle_type_id,
+            'registration_number' => 'REG-' . strtoupper(uniqid()),
+            'status'              => 'active',
+        ]);
+    }
+
+    private function driverFor(Tenant $tenant): Driver
+    {
+        return Driver::create([
+            'tenant_id'      => $tenant->id,
+            'name'           => 'Driver ' . uniqid(),
+            'phone'          => '08030000009',
+            'licence_number' => 'LIC-' . strtoupper(uniqid()),
+            'status'         => 'active',
+        ]);
+    }
+
+    public function test_operator_can_assign_a_matching_vehicle_and_driver()
+    {
+        $tenant  = Tenant::create(['name' => 'Operator ' . uniqid()]);
+        $trip    = $this->makeSchedule($tenant);
+        $vehicle = $this->vehicleFor($trip);
+        $driver  = $this->driverFor($tenant);
+        $this->operatorFor($tenant);
+
+        $this->patchJson("/api/v1/scheduled-trips/{$trip->id}/assignment", [
+            'vehicle_id' => $vehicle->id,
+            'driver_id'  => $driver->id,
+        ])
+            ->assertStatus(200)
+            ->assertJsonPath('data.assignment.assigned', true)
+            ->assertJsonPath('data.assignment.vehicle.id', $vehicle->id)
+            ->assertJsonPath('data.assignment.driver.id', $driver->id);
+
+        $this->assertEquals($vehicle->id, $trip->fresh()->vehicle_id);
+        $this->assertEquals($driver->id, $trip->fresh()->driver_id);
+    }
+
+    public function test_cannot_assign_a_vehicle_of_a_different_type()
+    {
+        $tenant = Tenant::create(['name' => 'Operator ' . uniqid()]);
+        $trip   = $this->makeSchedule($tenant);
+
+        // A vehicle of some other type.
+        $otherType   = VehicleType::firstOrCreate(
+            ['vehicle_name' => 'Mercedes Sprinter', 'vehicle_category_id' => VehicleCategory::firstOrCreate(['vehicle_category_name' => 'Bus'])->id, 'year' => 2023],
+            ['status' => 'active']
+        );
+        $wrongVehicle = $this->vehicleFor($trip, $otherType->id);
+        $driver       = $this->driverFor($tenant);
+        $this->operatorFor($tenant);
+
+        $this->patchJson("/api/v1/scheduled-trips/{$trip->id}/assignment", [
+            'vehicle_id' => $wrongVehicle->id,
+            'driver_id'  => $driver->id,
+        ])->assertStatus(422);
+    }
+
+    public function test_cannot_double_book_a_vehicle_for_an_overlapping_trip()
+    {
+        $tenant   = Tenant::create(['name' => 'Operator ' . uniqid()]);
+        $tripA    = $this->makeSchedule($tenant);
+        $tripB    = $this->makeSchedule($tenant); // same route/time window (both depart +1 day)
+        $vehicle  = $this->vehicleFor($tripA);
+        $driverA  = $this->driverFor($tenant);
+        $driverB  = $this->driverFor($tenant);
+        $this->operatorFor($tenant);
+
+        $this->patchJson("/api/v1/scheduled-trips/{$tripA->id}/assignment", [
+            'vehicle_id' => $vehicle->id,
+            'driver_id'  => $driverA->id,
+        ])->assertStatus(200);
+
+        // Same vehicle, overlapping window → rejected.
+        $this->patchJson("/api/v1/scheduled-trips/{$tripB->id}/assignment", [
+            'vehicle_id' => $vehicle->id,
+            'driver_id'  => $driverB->id,
+        ])->assertStatus(422);
+    }
+
+    public function test_operator_can_clear_an_assignment()
+    {
+        $tenant  = Tenant::create(['name' => 'Operator ' . uniqid()]);
+        $trip    = $this->makeSchedule($tenant);
+        $vehicle = $this->vehicleFor($trip);
+        $driver  = $this->driverFor($tenant);
+        $this->operatorFor($tenant);
+
+        $this->patchJson("/api/v1/scheduled-trips/{$trip->id}/assignment", [
+            'vehicle_id' => $vehicle->id,
+            'driver_id'  => $driver->id,
+        ])->assertStatus(200);
+
+        $this->deleteJson("/api/v1/scheduled-trips/{$trip->id}/assignment")
+            ->assertStatus(200)
+            ->assertJsonPath('data.assignment.assigned', false);
+
+        $this->assertNull($trip->fresh()->vehicle_id);
+        $this->assertNull($trip->fresh()->driver_id);
     }
 }

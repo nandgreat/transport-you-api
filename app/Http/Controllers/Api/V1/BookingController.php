@@ -34,6 +34,16 @@ class BookingController extends Controller
         return $this->success($bookings, 'Bookings retrieved successfully');
     }
 
+    public function summary(Request $request)
+    {
+        $user = $request->user();
+
+        return $this->success(
+            $this->bookingService->summary($user->id, $user->tenant_id, $user->isSuperAdmin()),
+            'Booking summary retrieved successfully'
+        );
+    }
+
     public function store(StoreBookingRequest $request)
     {
         $user    = $request->user();

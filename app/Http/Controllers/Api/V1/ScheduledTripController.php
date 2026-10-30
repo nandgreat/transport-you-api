@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\ScheduledTrip\AssignTripResourcesRequest;
 use App\Http\Requests\ScheduledTrip\UpdateScheduledTripStatusRequest;
 use App\Models\Schedule;
 use App\Services\ScheduledTripService;
@@ -79,6 +80,29 @@ class ScheduledTripController extends Controller
     }
 
     /**
+     * Assign a physical vehicle and driver to a trip.
+     */
+    public function assign(AssignTripResourcesRequest $request, string $id)
+    {
+        $tenantId = $this->resolveTenantId($request);
+        $data     = $request->validated();
+        $trip     = $this->service->assign($tenantId, $id, (int) $data['vehicle_id'], (int) $data['driver_id']);
+
+        return $this->success($this->formatTrip($trip), 'Vehicle and driver assigned successfully');
+    }
+
+    /**
+     * Remove the vehicle/driver assignment from a trip.
+     */
+    public function unassign(Request $request, string $id)
+    {
+        $tenantId = $this->resolveTenantId($request);
+        $trip     = $this->service->unassign($tenantId, $id);
+
+        return $this->success($this->formatTrip($trip), 'Vehicle and driver assignment cleared successfully');
+    }
+
+    /**
      * Passenger manifest for a trip: the number of passengers and whether each
      * one has checked in (boarded) yet.
      */
@@ -135,6 +159,24 @@ class ScheduledTripController extends Controller
                 'id'           => $trip->vehicleType->id,
                 'vehicle_name' => $trip->vehicleType->vehicle_name,
             ] : null,
+            'assignment' => [
+                'assigned'    => (bool) ($trip->vehicle_id && $trip->driver_id),
+                'assigned_at' => $trip->assigned_at,
+                'vehicle'     => $trip->vehicle ? [
+                    'id'                  => $trip->vehicle->id,
+                    'registration_number' => $trip->vehicle->registration_number,
+                    'vehicle_type'        => $trip->vehicle->vehicleType?->vehicle_name,
+                    'status'              => $trip->vehicle->status,
+                ] : null,
+                'driver'      => $trip->driver ? [
+                    'id'              => $trip->driver->id,
+                    'name'            => $trip->driver->name,
+                    'phone'           => $trip->driver->phone,
+                    'licence_number'  => $trip->driver->licence_number,
+                    'availability'    => $trip->driver->availability,
+                    'trips_completed' => $trip->driver->trips_completed,
+                ] : null,
+            ],
             'operator' => $trip->tenant ? ['id' => $trip->tenant->id, 'name' => $trip->tenant->name] : null,
         ];
 
