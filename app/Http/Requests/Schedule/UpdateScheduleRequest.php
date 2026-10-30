@@ -55,12 +55,41 @@ class UpdateScheduleRequest extends FormRequest
                 'integer',
                 Rule::exists('vehicle_types', 'id')->where('status', 'active'),
             ],
-            'seat_arrangement_type_id' => 'sometimes|nullable|integer|exists:seat_arrangement_types,id',
+            // Must belong to the vehicle type being set (or the schedule's current one).
+            'seat_arrangement_type_id' => [
+                'sometimes', 'nullable', 'integer',
+                Rule::exists('seat_arrangement_type_vehicle_type', 'seat_arrangement_type_id')
+                    ->where('vehicle_type_id', $this->resolveVehicleTypeId()),
+            ],
             'seat_selection_enabled'   => 'sometimes|boolean',
             'departure_time' => 'sometimes|required|date_format:Y-m-d H:i:s',
             'arrival_time'   => 'sometimes|nullable|date_format:Y-m-d H:i:s|after:departure_time',
             'fare'           => 'sometimes|required|numeric|min:0',
             'status'         => 'sometimes|nullable|in:scheduled,in_transit,completed,cancelled',
         ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'seat_arrangement_type_id.exists' => 'The selected seat arrangement is not available for this vehicle type.',
+        ];
+    }
+
+    /**
+     * Vehicle type the arrangement must belong to: the one in the payload,
+     * otherwise the schedule's current vehicle_type_id.
+     */
+    private function resolveVehicleTypeId(): ?int
+    {
+        if ($this->filled('vehicle_type_id')) {
+            return (int) $this->input('vehicle_type_id');
+        }
+
+        $scheduleId = $this->route('schedule');
+
+        return $scheduleId
+            ? \App\Models\Schedule::whereKey($scheduleId)->value('vehicle_type_id')
+            : null;
     }
 }

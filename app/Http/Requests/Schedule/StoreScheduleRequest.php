@@ -72,7 +72,12 @@ class StoreScheduleRequest extends FormRequest
                 'required', 'integer',
                 Rule::exists('vehicle_types', 'id')->where('status', 'active'),
             ],
-            'seat_arrangement_type_id' => 'nullable|integer|exists:seat_arrangement_types,id',
+            // Must be one of the arrangements attached to the chosen vehicle type.
+            'seat_arrangement_type_id' => [
+                'nullable', 'integer',
+                Rule::exists('seat_arrangement_type_vehicle_type', 'seat_arrangement_type_id')
+                    ->where('vehicle_type_id', $this->input('vehicle_type_id')),
+            ],
             'seat_selection_enabled'   => 'nullable|boolean',
             'fare'   => 'required|numeric|min:0',
             'status' => 'nullable|in:scheduled,in_transit,completed,cancelled',
@@ -125,6 +130,7 @@ class StoreScheduleRequest extends FormRequest
             'destination_city.required' => 'Provide origin_city + destination_city when not using route_id or location IDs.',
             'days_of_week.required'     => 'Select at least one day of the week for recurring schedules.',
             'days_of_week.*.in'         => 'Each day must be one of: monday, tuesday, wednesday, thursday, friday, saturday, sunday.',
+            'seat_arrangement_type_id.exists' => 'The selected seat arrangement is not available for this vehicle type.',
             'departure_time.date_format' => $this->filled('start_date')
                 ? 'departure_time must be a time in H:i format (e.g. 08:00).'
                 : 'departure_time must be a full datetime in Y-m-d H:i:s format.',
