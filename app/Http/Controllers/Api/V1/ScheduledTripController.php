@@ -34,7 +34,7 @@ class ScheduledTripController extends Controller
     public function index(Request $request)
     {
         $request->validate([
-            'status'            => 'nullable|in:scheduled,in_transit,completed,cancelled',
+            'trip_status'       => 'nullable|in:not_started,ongoing,completed,cancelled',
             'source'            => 'nullable|in:one_off,recurring',
             'schedule_group_id' => 'nullable|integer|exists:schedule_groups,id',
             'departure_date'    => 'nullable|date_format:Y-m-d',
@@ -46,7 +46,7 @@ class ScheduledTripController extends Controller
         ]);
 
         $tenantId = $this->resolveTenantId($request);
-        $filters  = $request->only(['status', 'source', 'schedule_group_id', 'departure_date', 'from_date', 'to_date', 'origin_id', 'destination_id']);
+        $filters  = $request->only(['trip_status', 'source', 'schedule_group_id', 'departure_date', 'from_date', 'to_date', 'origin_id', 'destination_id']);
 
         $trips = $this->service->list($tenantId, $filters);
         $trips->setCollection($trips->getCollection()->map(fn ($t) => $this->formatTrip($t)));
@@ -78,6 +78,27 @@ class ScheduledTripController extends Controller
         return $this->success($this->formatTrip($trip), 'Scheduled trip cancelled successfully');
     }
 
+    /**
+     * Passenger manifest for a trip: the number of passengers and whether each
+     * one has checked in (boarded) yet.
+     */
+    public function passengers(Request $request, string $id)
+    {
+        $tenantId = $this->resolveTenantId($request);
+        $trip     = $this->service->get($tenantId, $id);
+        $manifest = $this->service->manifest($trip);
+
+        return $this->success([
+            'id'                   => $trip->id,
+            'travel_date'          => $trip->departure_time?->format('Y-m-d'),
+            'trip_status'          => $trip->trip_status,
+            'passenger_count'      => $manifest['passenger_count'],
+            'checked_in_count'     => $manifest['checked_in_count'],
+            'not_checked_in_count' => $manifest['not_checked_in_count'],
+            'passengers'           => $manifest['passengers'],
+        ], 'Passenger manifest retrieved successfully');
+    }
+
     // -------------------------------------------------------------------------
 
     private function formatTrip(Schedule $trip, bool $withManifest = false): array
@@ -85,6 +106,7 @@ class ScheduledTripController extends Controller
         $route    = $trip->route;
         $applied  = $trip->resolveSeatArrangement();
         $booked   = $trip->bookedSeatCount();
+        $manifest = $this->service->manifest($trip);
 
         $data = [
             'id'              => $trip->id,
@@ -94,12 +116,16 @@ class ScheduledTripController extends Controller
             'departure_time'  => $trip->departure_time,
             'arrival_time'    => $trip->arrival_time,
             'fare'            => $trip->fare,
+            'trip_status'     => $trip->trip_status,
             'status'          => $trip->status,
             'seat_selection_enabled' => (bool) $trip->seat_selection_enabled,
             'seat_arrangement' => $applied ? ['id' => $applied->id, 'name' => $applied->name, 'number_of_seats' => $applied->number_of_seats] : null,
             'capacity'        => $trip->capacity(),
             'booked_seats'    => $booked,
             'available_seats' => max(0, $trip->capacity() - $booked),
+            'passenger_count'      => $manifest['passenger_count'],
+            'checked_in_count'     => $manifest['checked_in_count'],
+            'not_checked_in_count' => $manifest['not_checked_in_count'],
             'route' => $route ? [
                 'id'          => $route->id,
                 'origin'      => $this->formatLocation($route->origin),
@@ -113,15 +139,7 @@ class ScheduledTripController extends Controller
         ];
 
         if ($withManifest) {
-            $data['manifest'] = $trip->relationLoaded('bookings')
-                ? $trip->bookings->flatMap(fn ($b) => collect($b->passengers ?? [])->map(fn ($p) => [
-                    'booking_id'  => $b->id,
-                    'name'        => $p['name'] ?? null,
-                    'phone'       => $p['phone'] ?? null,
-                    'seat_number' => $p['seat_number'] ?? null,
-                    'status'      => $b->status,
-                ]))->sortBy('seat_number')->values()
-                : [];
+            $data['manifest'] = $manifest['passengers'];
         }
 
         return $data;

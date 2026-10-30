@@ -24,6 +24,7 @@ class Schedule extends Model
         'arrival_time',
         'fare',
         'status',
+        'trip_status',
     ];
 
     /**
@@ -65,7 +66,7 @@ class Schedule extends Model
     public function takenSeats(): array
     {
         return $this->bookings()
-            ->whereIn('status', ['pending', 'confirmed'])
+            ->holdingSeats()
             ->get(['passengers'])
             ->flatMap(fn ($b) => collect($b->passengers ?? [])->pluck('seat_number'))
             ->reject(fn ($s) => $s === null || $s === '')
@@ -143,7 +144,7 @@ class Schedule extends Model
     public function bookedSeatCount(): int
     {
         return (int) $this->bookings()
-            ->whereIn('status', ['pending', 'confirmed'])
+            ->holdingSeats()
             ->get(['passengers'])
             ->sum(fn ($b) => count($b->passengers ?? []));
     }

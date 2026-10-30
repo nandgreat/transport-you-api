@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\V1\VehicleTypeController;
 use App\Http\Controllers\Api\V1\SeatArrangementTypeController;
 use App\Http\Controllers\Api\V1\ScheduledTripController;
 use App\Http\Controllers\Api\V1\PaymentController;
+use App\Http\Controllers\Api\V1\TicketController;
 
 /*
 |--------------------------------------------------------------------------
@@ -66,6 +67,7 @@ Route::prefix('v1')->group(function () {
         // Scheduled trips — concrete dated trips (one-off + materialised recurring)
         Route::get('scheduled-trips', [ScheduledTripController::class, 'index']);
         Route::get('scheduled-trips/{id}', [ScheduledTripController::class, 'show']);
+        Route::get('scheduled-trips/{id}/passengers', [ScheduledTripController::class, 'passengers']);
         Route::patch('scheduled-trips/{id}/status', [ScheduledTripController::class, 'updateStatus']);
         Route::patch('scheduled-trips/{id}/cancel', [ScheduledTripController::class, 'cancel']);
         Route::apiResource('states', StateController::class);
@@ -86,5 +88,10 @@ Route::prefix('v1')->group(function () {
         // Payments (Paystack)
         Route::post('bookings/{id}/pay', [PaymentController::class, 'initialize']);
         Route::get('payments/verify/{reference}', [PaymentController::class, 'verify']);
+
+        // Tickets (QR)
+        Route::get('tickets/verify/{code}', [TicketController::class, 'verify']);
+        Route::patch('tickets/{code}/check-in', [TicketController::class, 'checkIn']);
+        Route::post('bookings/{id}/resend-ticket', [TicketController::class, 'resend']);
     });
 });

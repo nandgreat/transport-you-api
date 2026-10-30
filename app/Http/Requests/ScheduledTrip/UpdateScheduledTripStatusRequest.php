@@ -14,7 +14,14 @@ class UpdateScheduledTripStatusRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'status' => 'required|in:scheduled,in_transit,completed,cancelled',
+            'status' => 'required|in:not_started,ongoing,completed,cancelled',
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'status.in' => 'Status must be one of: not_started, ongoing, completed, cancelled.',
         ];
     }
 }

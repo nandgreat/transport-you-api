@@ -12,7 +12,10 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule): void
     {
-        // $schedule->command('inspire')->hourly();
+        // Release seats from unpaid booking holds that have timed out.
+        $schedule->command('bookings:expire-holds')
+            ->everyMinute()
+            ->withoutOverlapping();
     }
 
     /**

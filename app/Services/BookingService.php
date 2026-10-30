@@ -9,7 +9,10 @@ use Illuminate\Support\Facades\DB;
 
 class BookingService
 {
-    public function __construct(protected ScheduleService $scheduleService) {}
+    public function __construct(
+        protected ScheduleService $scheduleService,
+        protected TicketService $ticketService,
+    ) {}
 
     /**
      * Resolve the target schedule for a (return) booking leg: an existing
@@ -47,6 +50,8 @@ class BookingService
             'returnBooking.schedule.vehicleType.category',
             'returnBooking.schedule.vehicleType.seatArrangementTypes',
             'returnBooking.schedule.seatArrangement',
+            'tickets',
+            'returnBooking.tickets',
             'user',
             'tenant',
         ];
@@ -77,6 +82,7 @@ class BookingService
             $schedule   = $this->resolveSchedule($data);
             $passengers = $data['passengers'];
             $seats      = count($passengers);
+            $status     = $data['status'] ?? 'pending';
 
             $outboundPassengers = $this->prepareSeats($schedule, $passengers);
 
@@ -87,7 +93,8 @@ class BookingService
                 'total_amount' => $schedule->fare * $seats,
                 'passengers'   => $outboundPassengers,
                 'notes'        => $data['notes'] ?? null,
-                'status'       => $data['status'] ?? 'pending',
+                'status'       => $status,
+                'expires_at'   => $this->holdExpiry($status),
             ]);
 
             if (! empty($data['is_round_trip']) && (($data['return_schedule_id'] ?? null) || ($data['return_schedule_group_id'] ?? null))) {
@@ -102,7 +109,8 @@ class BookingService
                     'total_amount' => $returnSchedule->fare * $seats,
                     'passengers'   => $returnPassengers,
                     'notes'        => $data['notes'] ?? null,
-                    'status'       => $data['status'] ?? 'pending',
+                    'status'       => $status,
+                    'expires_at'   => $this->holdExpiry($status),
                 ]);
 
                 $outbound->update(['return_booking_id' => $returnBooking->id]);
@@ -113,13 +121,38 @@ class BookingService
         });
     }
 
+    /**
+     * When a freshly created booking should release its seats if left unpaid.
+     * Only pending holds expire; confirmed bookings never do. Returns null when
+     * expiry is disabled (hold_minutes = 0) or the booking is not pending.
+     */
+    private function holdExpiry(string $status): ?\Illuminate\Support\Carbon
+    {
+        $minutes = (int) config('booking.hold_minutes', 15);
+
+        if ($status !== 'pending' || $minutes < 1) {
+            return null;
+        }
+
+        return now()->addMinutes($minutes);
+    }
+
     public function updateStatus(int $userId, ?int $tenantId, bool $isSuperAdmin, string $id, array $data): Booking
     {
         $booking = $this->getBooking($userId, $tenantId, $isSuperAdmin, $id);
+        $wasConfirmed = $booking->status === 'confirmed';
+
         $booking->update(array_filter([
             'status' => $data['status'],
             'notes'  => $data['notes'] ?? $booking->notes,
         ]));
+
+        // Confirming a booking (e.g. an operator marking a cash payment) issues
+        // and emails the QR tickets, just like a successful online payment.
+        if (! $wasConfirmed && $booking->status === 'confirmed') {
+            $booking->update(['expires_at' => null]);
+            $this->ticketService->issueAndEmail($booking->fresh());
+        }
 
         return $booking->load($this->bookingWith());
     }

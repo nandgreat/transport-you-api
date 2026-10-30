@@ -9,8 +9,10 @@ use Illuminate\Support\Str;
 
 class PaymentService
 {
-    public function __construct(protected PaystackService $paystack)
-    {
+    public function __construct(
+        protected PaystackService $paystack,
+        protected TicketService $tickets,
+    ) {
     }
 
     /**
@@ -20,6 +22,7 @@ class PaymentService
     public function initializeForBooking(Booking $booking): array
     {
         abort_if($booking->status !== 'pending', 422, 'Only pending bookings can be paid for.');
+        abort_if($booking->expires_at && $booking->expires_at->isPast(), 422, 'This booking hold has expired. Please book again.');
         abort_if(!$booking->user || !$booking->user->email, 422, 'The booking has no customer email to charge.');
 
         // Round trips are charged as one transaction (outbound + return legs).
@@ -80,7 +83,7 @@ class PaymentService
         $data = $this->paystack->verify($reference);
         $success = ($data['status'] ?? null) === 'success';
 
-        return DB::transaction(function () use ($payment, $data, $success) {
+        $result = DB::transaction(function () use ($payment, $data, $success) {
             $payment->update([
                 'payment_status' => $success ? 'successful' : 'failed',
                 'channel' => $data['channel'] ?? null,
@@ -89,9 +92,11 @@ class PaymentService
             ]);
 
             if ($success && $payment->booking) {
-                $payment->booking->update(['status' => 'confirmed']);
+                // Payment captured — confirm and lift the hold expiry.
+                $payment->booking->update(['status' => 'confirmed', 'expires_at' => null]);
                 if ($payment->booking->return_booking_id) {
-                    Booking::where('id', $payment->booking->return_booking_id)->update(['status' => 'confirmed']);
+                    Booking::where('id', $payment->booking->return_booking_id)
+                        ->update(['status' => 'confirmed', 'expires_at' => null]);
                 }
             }
 
@@ -101,5 +106,13 @@ class PaymentService
                 'booking' => $payment->booking?->fresh(),
             ];
         });
+
+        // Issue QR tickets and email them once the booking is confirmed. Done
+        // after the transaction commits so a mail hiccup can't roll back payment.
+        if ($success && $payment->booking) {
+            $this->tickets->issueAndEmail($payment->booking->fresh());
+        }
+
+        return $result;
     }
 }
