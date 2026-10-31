@@ -135,6 +135,12 @@ class ScheduledTripTest extends TestCase
         $this->confirmedBooking($trip);
         $this->operatorFor($tenant);
 
+        // A trip cannot start until a vehicle and driver are assigned.
+        $this->patchJson("/api/v1/scheduled-trips/{$trip->id}/status", ['status' => 'ongoing'])
+            ->assertStatus(422);
+
+        $trip->update(['vehicle_id' => $this->vehicleFor($trip)->id, 'driver_id' => $this->driverFor($tenant)->id]);
+
         $this->patchJson("/api/v1/scheduled-trips/{$trip->id}/status", ['status' => 'ongoing'])
             ->assertStatus(200)
             ->assertJsonPath('data.trip_status', 'ongoing');

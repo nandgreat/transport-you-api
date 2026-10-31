@@ -26,6 +26,9 @@ return new class extends Migration
         });
 
         // enum() leaves a CHECK constraint behind on Postgres; make sure it goes.
-        DB::statement('ALTER TABLE schedules DROP CONSTRAINT IF EXISTS schedules_trip_status_check');
+        // MySQL stores enums natively (no such constraint), so guard the syntax.
+        if (DB::getDriverName() === 'pgsql') {
+            DB::statement('ALTER TABLE schedules DROP CONSTRAINT IF EXISTS schedules_trip_status_check');
+        }
     }
 };

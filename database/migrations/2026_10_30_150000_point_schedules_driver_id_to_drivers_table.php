@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -12,9 +13,11 @@ return new class extends Migration
      */
     public function up(): void
     {
-        $this->dropForeignKeyIfExists('schedules', 'driver_id', 'schedules_driver_id_foreign');
+        if ($this->hasForeignKey('schedules', 'schedules_driver_id_foreign')) {
+            Schema::table('schedules', fn (Blueprint $table) => $table->dropForeign(['driver_id']));
+        }
 
-        \Illuminate\Support\Facades\DB::table('schedules')->update(['driver_id' => null, 'assigned_at' => null]);
+        DB::table('schedules')->update(['driver_id' => null, 'assigned_at' => null]);
 
         Schema::table('schedules', function (Blueprint $table) {
             $table->foreign('driver_id')->references('id')->on('drivers')->nullOnDelete();
@@ -23,45 +26,23 @@ return new class extends Migration
 
     public function down(): void
     {
-        $this->dropForeignKeyIfExists('schedules', 'driver_id', 'schedules_driver_id_foreign');
+        if ($this->hasForeignKey('schedules', 'schedules_driver_id_foreign')) {
+            Schema::table('schedules', fn (Blueprint $table) => $table->dropForeign(['driver_id']));
+        }
+
+        DB::table('schedules')->update(['driver_id' => null, 'assigned_at' => null]);
 
         Schema::table('schedules', function (Blueprint $table) {
             $table->foreign('driver_id')->references('id')->on('users')->nullOnDelete();
         });
     }
 
-    private function dropForeignKeyIfExists(string $table, string $column, ?string $defaultConstraint = null): void
+    private function hasForeignKey(string $table, string $name): bool
     {
-        try {
-            $foreignKeys = collect(Schema::getForeignKeys($table));
-            $match = $foreignKeys->first(function ($fk) use ($column, $defaultConstraint) {
-                return in_array($column, $fk['columns'] ?? [])
-                    || ($defaultConstraint && ($fk['name'] ?? null) === $defaultConstraint);
-            });
-
-            if ($match && !empty($match['name'])) {
-                Schema::table($table, function (Blueprint $tableBlueprint) use ($match) {
-                    $tableBlueprint->dropForeign($match['name']);
-                });
-                return;
-            }
-
-            if ($match) {
-                Schema::table($table, function (Blueprint $tableBlueprint) use ($column) {
-                    $tableBlueprint->dropForeign([$column]);
-                });
-                return;
-            }
-        } catch (\Throwable $e) {
-            // Fall through
-        }
-
-        try {
-            Schema::table($table, function (Blueprint $tableBlueprint) use ($column) {
-                $tableBlueprint->dropForeign([$column]);
-            });
-        } catch (\Throwable $e) {
-            // Safely ignore
-        }
+        return count(DB::select(
+            "select 1 from information_schema.table_constraints
+             where table_name = ? and constraint_name = ? and constraint_type = 'FOREIGN KEY'",
+            [$table, $name]
+        )) > 0;
     }
 };
