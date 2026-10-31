@@ -12,9 +12,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('schedules', function (Blueprint $table) {
-            $table->dropForeign(['driver_id']);
-        });
+        $this->dropForeignKeyIfExists('schedules', 'driver_id', 'schedules_driver_id_foreign');
 
         \Illuminate\Support\Facades\DB::table('schedules')->update(['driver_id' => null, 'assigned_at' => null]);
 
@@ -25,9 +23,45 @@ return new class extends Migration
 
     public function down(): void
     {
+        $this->dropForeignKeyIfExists('schedules', 'driver_id', 'schedules_driver_id_foreign');
+
         Schema::table('schedules', function (Blueprint $table) {
-            $table->dropForeign(['driver_id']);
             $table->foreign('driver_id')->references('id')->on('users')->nullOnDelete();
         });
+    }
+
+    private function dropForeignKeyIfExists(string $table, string $column, ?string $defaultConstraint = null): void
+    {
+        try {
+            $foreignKeys = collect(Schema::getForeignKeys($table));
+            $match = $foreignKeys->first(function ($fk) use ($column, $defaultConstraint) {
+                return in_array($column, $fk['columns'] ?? [])
+                    || ($defaultConstraint && ($fk['name'] ?? null) === $defaultConstraint);
+            });
+
+            if ($match && !empty($match['name'])) {
+                Schema::table($table, function (Blueprint $tableBlueprint) use ($match) {
+                    $tableBlueprint->dropForeign($match['name']);
+                });
+                return;
+            }
+
+            if ($match) {
+                Schema::table($table, function (Blueprint $tableBlueprint) use ($column) {
+                    $tableBlueprint->dropForeign([$column]);
+                });
+                return;
+            }
+        } catch (\Throwable $e) {
+            // Fall through
+        }
+
+        try {
+            Schema::table($table, function (Blueprint $tableBlueprint) use ($column) {
+                $tableBlueprint->dropForeign([$column]);
+            });
+        } catch (\Throwable $e) {
+            // Safely ignore
+        }
     }
 };
