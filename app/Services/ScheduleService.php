@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Location;
 use App\Models\Schedule;
 use App\Models\ScheduleGroup;
 use Carbon\Carbon;
@@ -25,11 +26,33 @@ class ScheduleService
         ]);
     }
 
+    /**
+     * Resolve a searched location id to the ids a route may start/end at.
+     * A city-level location (name equals its city, e.g. "Abuja") also matches
+     * every area in that city (Nyanya, Jabi, ...); an area matches only itself.
+     *
+     * @return array<int, int>
+     */
+    private function matchingLocationIds(int|string $id): array
+    {
+        $location = Location::find($id);
+
+        if (! $location || ! $location->city
+            || strtolower(trim($location->name)) !== strtolower(trim($location->city))) {
+            return [(int) $id];
+        }
+
+        return Location::whereRaw('LOWER(city) = ?', [strtolower(trim($location->city))])
+            ->pluck('id')
+            ->map(fn ($v) => (int) $v)
+            ->all();
+    }
+
     private function applyFilters(\Illuminate\Database\Eloquent\Builder $q, array $filters): \Illuminate\Database\Eloquent\Builder
     {
         return $q
-            ->when($filters['origin_id'] ?? null,       fn($q, $v) => $q->whereHas('route', fn($r) => $r->where('origin_id', $v)))
-            ->when($filters['destination_id'] ?? null,  fn($q, $v) => $q->whereHas('route', fn($r) => $r->where('destination_id', $v)))
+            ->when($filters['origin_id'] ?? null,       fn($q, $v) => $q->whereHas('route', fn($r) => $r->whereIn('origin_id', $this->matchingLocationIds($v))))
+            ->when($filters['destination_id'] ?? null,  fn($q, $v) => $q->whereHas('route', fn($r) => $r->whereIn('destination_id', $this->matchingLocationIds($v))))
             ->when($filters['origin_city'] ?? null,      fn($q, $v) => $q->whereHas('route.origin',      fn($r) => $r->whereRaw('LOWER(city) = ?', [strtolower(trim($v))])))
             ->when($filters['destination_city'] ?? null, fn($q, $v) => $q->whereHas('route.destination', fn($r) => $r->whereRaw('LOWER(city) = ?', [strtolower(trim($v))])))
             ->when($filters['departure_date'] ?? null,  fn($q, $v) => $q->whereDate('departure_time', $v))
@@ -119,8 +142,8 @@ class ScheduleService
             ->where('status', 'active')
             ->whereDate('end_date', '>=', $today)
             ->when($filters['tenant_id'] ?? null,       fn($q, $v) => $q->where('tenant_id', $v))
-            ->when($filters['origin_id'] ?? null,       fn($q, $v) => $q->whereHas('route', fn($r) => $r->where('origin_id', $v)))
-            ->when($filters['destination_id'] ?? null,  fn($q, $v) => $q->whereHas('route', fn($r) => $r->where('destination_id', $v)))
+            ->when($filters['origin_id'] ?? null,       fn($q, $v) => $q->whereHas('route', fn($r) => $r->whereIn('origin_id', $this->matchingLocationIds($v))))
+            ->when($filters['destination_id'] ?? null,  fn($q, $v) => $q->whereHas('route', fn($r) => $r->whereIn('destination_id', $this->matchingLocationIds($v))))
             ->when($filters['origin_city'] ?? null,      fn($q, $v) => $q->whereHas('route.origin',      fn($r) => $r->whereRaw('LOWER(city) = ?', [strtolower(trim($v))])))
             ->when($filters['destination_city'] ?? null, fn($q, $v) => $q->whereHas('route.destination', fn($r) => $r->whereRaw('LOWER(city) = ?', [strtolower(trim($v))])))
             ->get();
