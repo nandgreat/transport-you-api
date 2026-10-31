@@ -13,8 +13,12 @@ return new class extends Migration
     {
         Schema::create('seat_arrangement_type_vehicle_type', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('vehicle_type_id')->constrained('vehicle_types')->cascadeOnDelete();
-            $table->foreignId('seat_arrangement_type_id')->constrained('seat_arrangement_types')->cascadeOnDelete();
+            // Explicit short FK names: the auto-generated names exceed MySQL's
+            // 64-character identifier limit for this long pivot-table name.
+            $table->foreignId('vehicle_type_id')
+                  ->constrained('vehicle_types', 'id', 'vt_sat_vt_fk')->cascadeOnDelete();
+            $table->foreignId('seat_arrangement_type_id')
+                  ->constrained('seat_arrangement_types', 'id', 'vt_sat_sat_fk')->cascadeOnDelete();
             $table->boolean('is_default')->default(false);
             $table->timestamps();
 
