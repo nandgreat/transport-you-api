@@ -2,7 +2,6 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -34,13 +33,10 @@ return new class extends Migration
 
     public function down(): void
     {
-        // Drop foreign keys only if present, so rollback is safe on any driver
-        // and whatever table driver_id currently points at.
-        foreach (['vehicle_id', 'driver_id'] as $column) {
-            if ($this->hasForeignKey('schedules', "schedules_{$column}_foreign")) {
-                Schema::table('schedules', fn (Blueprint $table) => $table->dropForeign([$column]));
-            }
-        }
+        // Drop the foreign keys defensively — rollback must not fail if a key is
+        // already gone, and this stays correct on MySQL and PostgreSQL alike.
+        $this->dropForeignIfExists('schedules', 'vehicle_id');
+        $this->dropForeignIfExists('schedules', 'driver_id');
 
         $columns = array_values(array_filter(
             ['vehicle_id', 'driver_id', 'assigned_at'],
@@ -53,15 +49,15 @@ return new class extends Migration
     }
 
     /**
-     * Cross-database foreign-key existence check (MySQL + PostgreSQL), without
-     * relying on doctrine/dbal or the Laravel 11+ Schema::getForeignKeys().
+     * Drop a column's conventional foreign key, ignoring the "doesn't exist"
+     * error so the migration is safe to roll back from any state.
      */
-    private function hasForeignKey(string $table, string $name): bool
+    private function dropForeignIfExists(string $table, string $column): void
     {
-        return count(DB::select(
-            "select 1 from information_schema.table_constraints
-             where table_name = ? and constraint_name = ? and constraint_type = 'FOREIGN KEY'",
-            [$table, $name]
-        )) > 0;
+        try {
+            Schema::table($table, fn (Blueprint $t) => $t->dropForeign([$column]));
+        } catch (\Throwable $e) {
+            // Foreign key already absent — nothing to do.
+        }
     }
 };

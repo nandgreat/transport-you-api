@@ -13,9 +13,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        if ($this->hasForeignKey('schedules', 'schedules_driver_id_foreign')) {
-            Schema::table('schedules', fn (Blueprint $table) => $table->dropForeign(['driver_id']));
-        }
+        $this->dropForeignIfExists('schedules', 'driver_id');
 
         DB::table('schedules')->update(['driver_id' => null, 'assigned_at' => null]);
 
@@ -26,9 +24,7 @@ return new class extends Migration
 
     public function down(): void
     {
-        if ($this->hasForeignKey('schedules', 'schedules_driver_id_foreign')) {
-            Schema::table('schedules', fn (Blueprint $table) => $table->dropForeign(['driver_id']));
-        }
+        $this->dropForeignIfExists('schedules', 'driver_id');
 
         DB::table('schedules')->update(['driver_id' => null, 'assigned_at' => null]);
 
@@ -37,12 +33,16 @@ return new class extends Migration
         });
     }
 
-    private function hasForeignKey(string $table, string $name): bool
+    /**
+     * Drop a column's conventional foreign key, ignoring the "doesn't exist"
+     * error so the migration is safe on MySQL and PostgreSQL alike.
+     */
+    private function dropForeignIfExists(string $table, string $column): void
     {
-        return count(DB::select(
-            "select 1 from information_schema.table_constraints
-             where table_name = ? and constraint_name = ? and constraint_type = 'FOREIGN KEY'",
-            [$table, $name]
-        )) > 0;
+        try {
+            Schema::table($table, fn (Blueprint $t) => $t->dropForeign([$column]));
+        } catch (\Throwable $e) {
+            // Foreign key already absent — nothing to do.
+        }
     }
 };
