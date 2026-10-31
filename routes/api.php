@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\VehicleController;
 use App\Http\Controllers\Api\V1\TenantController;
+use App\Http\Controllers\Api\V1\TenantManagementController;
 use App\Http\Controllers\Api\V1\TenantOnboardingController;
 use App\Http\Controllers\Api\V1\LocationController;
 use App\Http\Controllers\Api\V1\RouteController;
@@ -59,6 +60,11 @@ Route::prefix('v1')->group(function () {
         // Tenant self-service (authenticated user's own tenant)
         Route::get('/tenant', [TenantController::class, 'show']);
         Route::patch('/tenant', [TenantController::class, 'update']);
+
+        // Platform-wide tenant company management (super admin only — enforced
+        // in the controller). Plural "tenants" to distinguish from the singular
+        // self-service routes above.
+        Route::apiResource('tenants', TenantManagementController::class);
 
 
         Route::apiResource('vehicles', VehicleController::class);

@@ -61,6 +61,14 @@ class Controller extends BaseController
     }
 
     /**
+     * 403 – Authenticated but not allowed to perform this action.
+     */
+    protected function forbidden(string $message = 'You are not allowed to perform this action.', mixed $data = null): JsonResponse
+    {
+        return $this->apiResponse(403, $message, $data);
+    }
+
+    /**
      * 404 – Resource not found.
      */
     protected function notFound(string $message = 'Resource not found', mixed $data = null): JsonResponse

@@ -26,4 +26,14 @@ class Tenant extends Model
     {
         return $this->hasMany(Vehicle::class);
     }
+
+    public function schedules()
+    {
+        return $this->hasMany(Schedule::class);
+    }
+
+    public function bookings()
+    {
+        return $this->hasMany(Booking::class);
+    }
 }
