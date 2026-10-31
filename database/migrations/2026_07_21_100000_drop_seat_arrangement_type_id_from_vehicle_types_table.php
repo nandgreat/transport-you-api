@@ -11,9 +11,13 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('vehicle_types', function (Blueprint $table) {
-            $table->dropConstrainedForeignId('seat_arrangement_type_id');
-        });
+        // Idempotent: tolerate a partially-migrated DB where the column/FK is
+        // already gone (MySQL errors on dropping a foreign key that isn't there).
+        $this->dropForeignIfExists('vehicle_types', 'seat_arrangement_type_id');
+
+        if (Schema::hasColumn('vehicle_types', 'seat_arrangement_type_id')) {
+            Schema::table('vehicle_types', fn (Blueprint $table) => $table->dropColumn('seat_arrangement_type_id'));
+        }
     }
 
     /**
@@ -21,12 +25,31 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('vehicle_types', function (Blueprint $table) {
-            $table->foreignId('seat_arrangement_type_id')
-                  ->nullable()
-                  ->after('vehicle_category_id')
-                  ->constrained('seat_arrangement_types')
-                  ->nullOnDelete();
-        });
+        if (! Schema::hasColumn('vehicle_types', 'seat_arrangement_type_id')) {
+            Schema::table('vehicle_types', function (Blueprint $table) {
+                $table->foreignId('seat_arrangement_type_id')
+                      ->nullable()
+                      ->after('vehicle_category_id')
+                      ->constrained('seat_arrangement_types')
+                      ->nullOnDelete();
+            });
+        }
+    }
+
+    /**
+     * Drop a column's conventional foreign key, ignoring the "doesn't exist"
+     * error so the migration is safe to run against any state (MySQL + Postgres).
+     */
+    private function dropForeignIfExists(string $table, string $column): void
+    {
+        if (! Schema::hasColumn($table, $column)) {
+            return;
+        }
+
+        try {
+            Schema::table($table, fn (Blueprint $t) => $t->dropForeign([$column]));
+        } catch (\Throwable $e) {
+            // Foreign key already absent — nothing to do.
+        }
     }
 };
