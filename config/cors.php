@@ -19,7 +19,11 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => ['*'],
+    'allowed_origins' => [
+        'https://transportyou.ng',
+        'https://www.transportyou.ng',
+        'https://dashboard.transportyou.ng',
+    ],
 
     'allowed_origins_patterns' => [],
 
