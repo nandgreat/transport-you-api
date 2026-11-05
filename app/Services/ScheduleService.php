@@ -262,6 +262,103 @@ class ScheduleService
         );
     }
 
+    /** Groups' eager-load set, matching the management list. */
+    private function groupRelations(): array
+    {
+        return [
+            'route.origin.state', 'route.destination.state',
+            'vehicleType.category', 'vehicleType.seatArrangementTypes', 'seatArrangement', 'tenant',
+        ];
+    }
+
+    public function getScheduleGroup(?int $tenantId, string $id): ScheduleGroup
+    {
+        return ScheduleGroup::with($this->groupRelations())
+            ->when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
+            ->findOrFail($id);
+    }
+
+    /**
+     * Update a recurring pattern. Changes apply to the pattern itself and to
+     * future, not-yet-departed instances that carry no active bookings; already
+     * departed or booked instances are left untouched so history stays intact.
+     */
+    public function updateScheduleGroup(?int $tenantId, string $id, array $data): ScheduleGroup
+    {
+        $group = $this->getScheduleGroup($tenantId, $id);
+
+        $routeFields = ['route_id', 'origin_id', 'destination_id', 'origin_city', 'destination_city',
+                        'external_route_ref', 'distance', 'estimated_duration'];
+
+        if ($tenantId && array_intersect_key($data, array_flip($routeFields))) {
+            $data['route_id'] = $this->routeResolver->resolve($tenantId, array_merge(
+                ['route_id' => $group->route_id],
+                $data
+            ));
+        }
+
+        if (array_key_exists('seat_arrangement_type_id', $data)) {
+            $this->assertArrangementForType(
+                $data['vehicle_type_id'] ?? $group->vehicle_type_id,
+                $data['seat_arrangement_type_id']
+            );
+        }
+
+        // Guard the date range against whichever side is being changed.
+        $start = $data['start_date'] ?? $group->start_date->format('Y-m-d');
+        $end   = $data['end_date'] ?? $group->end_date->format('Y-m-d');
+        abort_if(Carbon::parse($end)->lt(Carbon::parse($start)), 422, 'end_date must be on or after start_date.');
+
+        $groupData = array_intersect_key($data, array_flip([
+            'route_id', 'vehicle_type_id', 'seat_arrangement_type_id', 'seat_selection_enabled',
+            'start_date', 'end_date', 'days_of_week', 'departure_time', 'arrival_time', 'fare', 'status',
+        ]));
+
+        $group->update($groupData);
+
+        $this->propagateGroupChanges($group, $groupData);
+
+        return $group->load($this->groupRelations());
+    }
+
+    /**
+     * Apply a pattern's new vehicle/fare/seat settings to its future instances
+     * that haven't departed and hold no active bookings. Time/day/range changes
+     * are not retro-applied to already-materialised rows (their departure_time
+     * is fixed); they take effect for occurrences materialised from now on.
+     */
+    private function propagateGroupChanges(ScheduleGroup $group, array $groupData): void
+    {
+        $propagatable = array_intersect_key($groupData, array_flip([
+            'route_id', 'vehicle_type_id', 'seat_arrangement_type_id', 'seat_selection_enabled', 'fare',
+        ]));
+
+        if (! $propagatable) {
+            return;
+        }
+
+        $group->schedules()
+            ->where('departure_time', '>', now())
+            ->whereDoesntHave('bookings', fn ($q) => $q->holdingSeats())
+            ->update($propagatable);
+    }
+
+    public function deleteScheduleGroup(?int $tenantId, string $id): bool
+    {
+        $group = $this->getScheduleGroup($tenantId, $id);
+
+        // Refuse to delete a pattern that still has active (held/confirmed)
+        // bookings on any materialised instance.
+        $hasActiveBookings = $group->schedules()
+            ->whereHas('bookings', fn ($q) => $q->holdingSeats())
+            ->exists();
+
+        abort_if($hasActiveBookings, 422, 'This recurring schedule has active bookings and cannot be deleted. Pause it instead.');
+
+        $group->delete();
+        return true;
+    }
+
     public function createSchedule(?int $tenantId, array $data)
     {
         if ($tenantId) {

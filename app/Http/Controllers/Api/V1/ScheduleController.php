@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Schedule\StoreScheduleRequest;
 use App\Http\Requests\Schedule\UpdateScheduleRequest;
+use App\Http\Requests\Schedule\UpdateScheduleGroupRequest;
 use App\Models\Schedule;
 use App\Services\ScheduleService;
 use Illuminate\Http\Request;
@@ -115,6 +116,31 @@ class ScheduleController extends Controller
         $tenantId = $this->resolveTenantId($request);
         $this->scheduleService->deleteSchedule($tenantId, $id);
         return $this->success(null, 'Schedule deleted successfully');
+    }
+
+    // -------------------------------------------------------------------------
+    // Recurring schedule groups (patterns)
+    // -------------------------------------------------------------------------
+
+    public function showGroup(Request $request, string $id)
+    {
+        $tenantId = $this->resolveTenantId($request);
+        $group    = $this->scheduleService->getScheduleGroup($tenantId, $id);
+        return $this->success($this->formatGroup($group), 'Recurring schedule retrieved successfully');
+    }
+
+    public function updateGroup(UpdateScheduleGroupRequest $request, string $id)
+    {
+        $tenantId = $this->resolveTenantId($request);
+        $group    = $this->scheduleService->updateScheduleGroup($tenantId, $id, $request->validated());
+        return $this->success($this->formatGroup($group), 'Recurring schedule updated successfully');
+    }
+
+    public function destroyGroup(Request $request, string $id)
+    {
+        $tenantId = $this->resolveTenantId($request);
+        $this->scheduleService->deleteScheduleGroup($tenantId, $id);
+        return $this->success(null, 'Recurring schedule deleted successfully');
     }
 
     private function formatLocation(?\App\Models\Location $location): ?array

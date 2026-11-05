@@ -702,4 +702,113 @@ class ScheduleTest extends TestCase
 
         $response->assertStatus(200)->assertJsonCount(1, 'data');
     }
+
+    // -------------------------------------------------------------------------
+    // Recurring schedule groups — update / delete
+    // -------------------------------------------------------------------------
+
+    private function makeGroup(array $resources, array $overrides = []): ScheduleGroup
+    {
+        $monday = Carbon::today()->next(Carbon::MONDAY);
+
+        return ScheduleGroup::create(array_merge([
+            'tenant_id'       => $resources['tenant']->id,
+            'route_id'        => $resources['route']->id,
+            'vehicle_type_id' => $resources['vehicleType']->id,
+            'start_date'      => $monday,
+            'end_date'        => $monday->copy()->addWeeks(4),
+            'days_of_week'    => ['monday', 'friday'],
+            'departure_time'  => '08:00',
+            'arrival_time'    => '20:00',
+            'fare'            => 5000,
+            'status'          => 'active',
+        ], $overrides));
+    }
+
+    public function test_tenant_can_update_a_recurring_group()
+    {
+        $resources = $this->makeTenantWithResources();
+        $group     = $this->makeGroup($resources);
+        Passport::actingAs($resources['user']);
+
+        $this->patchJson("/api/v1/schedule-groups/{$group->id}", [
+            'fare'         => 7500,
+            'days_of_week' => ['monday', 'wednesday', 'friday'],
+            'status'       => 'paused',
+        ])
+            ->assertStatus(200)
+            ->assertJsonFragment(['fare' => '7500.00'])
+            ->assertJsonPath('data.status', 'paused')
+            ->assertJsonPath('data.days_of_week', ['monday', 'wednesday', 'friday']);
+
+        $this->assertEquals('paused', $group->fresh()->status);
+    }
+
+    public function test_updating_group_fare_propagates_to_future_unbooked_instances()
+    {
+        $resources = $this->makeTenantWithResources();
+        $group     = $this->makeGroup($resources);
+        Passport::actingAs($resources['user']);
+
+        // A materialised future instance with no bookings.
+        $future = Schedule::create([
+            'tenant_id'         => $resources['tenant']->id,
+            'schedule_group_id' => $group->id,
+            'route_id'          => $resources['route']->id,
+            'vehicle_type_id'   => $resources['vehicleType']->id,
+            'departure_time'    => now()->addDays(3),
+            'arrival_time'      => now()->addDays(3)->addHours(4),
+            'fare'              => 5000,
+            'status'            => 'scheduled',
+        ]);
+
+        $this->patchJson("/api/v1/schedule-groups/{$group->id}", ['fare' => 9000])
+            ->assertStatus(200);
+
+        $this->assertEquals('9000.00', $future->fresh()->fare);
+    }
+
+    public function test_group_update_rejects_seat_arrangement_not_on_vehicle_type()
+    {
+        $resources = $this->makeTenantWithResources();
+        $group     = $this->makeGroup($resources);
+        $foreign   = SeatArrangementType::create(['name' => 'Not Attached 9', 'number_of_seats' => 9, 'status' => 'active']);
+        Passport::actingAs($resources['user']);
+
+        $this->patchJson("/api/v1/schedule-groups/{$group->id}", [
+            'seat_arrangement_type_id' => $foreign->id,
+        ])->assertStatus(422);
+    }
+
+    public function test_group_update_rejects_end_date_before_start_date()
+    {
+        $resources = $this->makeTenantWithResources();
+        $group     = $this->makeGroup($resources);
+        Passport::actingAs($resources['user']);
+
+        $this->patchJson("/api/v1/schedule-groups/{$group->id}", [
+            'end_date' => $group->start_date->copy()->subDay()->format('Y-m-d'),
+        ])->assertStatus(422);
+    }
+
+    public function test_tenant_cannot_update_another_tenants_group()
+    {
+        $mine  = $this->makeTenantWithResources('Mine Ltd');
+        $other = $this->makeTenantWithResources('Other Ltd');
+        $group = $this->makeGroup($other);
+        Passport::actingAs($mine['user']);
+
+        $this->patchJson("/api/v1/schedule-groups/{$group->id}", ['fare' => 1])
+            ->assertStatus(404);
+    }
+
+    public function test_tenant_can_delete_a_group_without_active_bookings()
+    {
+        $resources = $this->makeTenantWithResources();
+        $group     = $this->makeGroup($resources);
+        Passport::actingAs($resources['user']);
+
+        $this->deleteJson("/api/v1/schedule-groups/{$group->id}")->assertStatus(200);
+        $this->assertDatabaseMissing('schedule_groups', ['id' => $group->id]);
+    }
 }

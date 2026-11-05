@@ -74,6 +74,11 @@ Route::prefix('v1')->group(function () {
         Route::apiResource('routes', RouteController::class);
         Route::apiResource('schedules', ScheduleController::class);
 
+        // Recurring schedule patterns (groups): view / edit / remove a whole series
+        Route::get('schedule-groups/{id}', [ScheduleController::class, 'showGroup']);
+        Route::match(['put', 'patch'], 'schedule-groups/{id}', [ScheduleController::class, 'updateGroup']);
+        Route::delete('schedule-groups/{id}', [ScheduleController::class, 'destroyGroup']);
+
         // Scheduled trips — concrete dated trips (one-off + materialised recurring)
         Route::get('scheduled-trips', [ScheduledTripController::class, 'index']);
         Route::get('scheduled-trips/{id}', [ScheduledTripController::class, 'show']);
