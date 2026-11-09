@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Location;
+use App\Models\Status;
 
 class LocationService
 {
@@ -36,40 +37,52 @@ class LocationService
             $query->whereRaw('LOWER(name) LIKE ?', ["%{$name}%"]);
         }
 
-        if (!empty($filters['tenant_id'])) {
+        if (array_key_exists('tenant_id', $filters) && $filters['tenant_id'] !== null) {
             $query->where('tenant_id', $filters['tenant_id']);
         }
 
-        return $query->paginate($perPage);
+        return $query->latest()->paginate($perPage);
     }
 
     public function createLocation(array $data)
     {
         if (empty($data['status_id'])) {
-            $defaultStatus = \App\Models\Status::firstOrCreate(['name' => 'active']);
+            $defaultStatus = Status::firstOrCreate(['name' => 'active']);
             $data['status_id'] = $defaultStatus->id;
         }
-        return Location::create($data);
+
+        return Location::create($data)->load('state');
     }
 
-    public function getLocation(string $id)
+    public function getLocation(?int $tenantId, string $id)
     {
-        return Location::when(function ($query) {
-            return $query;
-        })->findOrFail($id);
+        return Location::with('state')
+            ->when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
+            ->findOrFail($id);
     }
 
-    public function updateLocation(string $id, array $data)
+    public function updateLocation(?int $tenantId, string $id, array $data)
     {
-        $location = $this->getLocation($id);
+        $location = $this->getLocation($tenantId, $id);
+
+        // Map the active/inactive status name onto its status_id.
+        if (array_key_exists('status', $data)) {
+            if (! empty($data['status'])) {
+                $data['status_id'] = Status::firstOrCreate(['name' => $data['status']])->id;
+            }
+            unset($data['status']);
+        }
+
         $location->update($data);
-        return $location;
+
+        return $location->load('state');
     }
 
-    public function deleteLocation(string $id)
+    public function deleteLocation(?int $tenantId, string $id)
     {
-        $location = $this->getLocation($id);
+        $location = $this->getLocation($tenantId, $id);
         $location->delete();
+
         return true;
     }
 }

@@ -40,8 +40,8 @@ class UpdateScheduleRequest extends FormRequest
                 'integer',
                 Rule::exists('routes', 'id')->when($tenantId, fn($q) => $q->where('tenant_id', $tenantId)),
             ],
-            'origin_id'      => 'sometimes|nullable|integer|exists:locations,id',
-            'destination_id' => 'sometimes|nullable|integer|exists:locations,id',
+            'origin_id'      => ['sometimes', 'nullable', 'integer', Rule::exists('locations', 'id')->when($tenantId, fn ($r) => $r->where('tenant_id', $tenantId))],
+            'destination_id' => ['sometimes', 'nullable', 'integer', Rule::exists('locations', 'id')->when($tenantId, fn ($r) => $r->where('tenant_id', $tenantId))],
             'origin_city'      => 'sometimes|nullable|string|max:100',
             'destination_city' => 'sometimes|nullable|string|max:100',
 

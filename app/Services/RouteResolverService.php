@@ -41,7 +41,13 @@ class RouteResolverService
     private function resolveLocationIds(int $tenantId, array $data): array
     {
         if (!empty($data['origin_id']) && !empty($data['destination_id'])) {
-            return [(int) $data['origin_id'], (int) $data['destination_id']];
+            $originId = (int) $data['origin_id'];
+            $destId   = (int) $data['destination_id'];
+
+            // Schedules may only use locations the operator owns.
+            $this->assertOwned($tenantId, [$originId, $destId]);
+
+            return [$originId, $destId];
         }
 
         if (!empty($data['origin_city']) && !empty($data['destination_city'])) {
@@ -56,11 +62,25 @@ class RouteResolverService
         ]);
     }
 
+    /**
+     * Every location referenced by a schedule must belong to the tenant.
+     */
+    private function assertOwned(int $tenantId, array $locationIds): void
+    {
+        $owned = Location::where('tenant_id', $tenantId)
+            ->whereIn('id', $locationIds)
+            ->count();
+
+        if ($owned !== count(array_unique($locationIds))) {
+            throw ValidationException::withMessages([
+                'route' => 'Origin and destination must be locations you created.',
+            ]);
+        }
+    }
+
     private function findLocationByCity(int $tenantId, string $city): Location
     {
-        $location = Location::where(function ($q) use ($tenantId) {
-                $q->where('tenant_id', $tenantId)->orWhereNull('tenant_id');
-            })
+        $location = Location::where('tenant_id', $tenantId)
             ->whereRaw('LOWER(city) = ?', [strtolower(trim($city))])
             ->first();
 

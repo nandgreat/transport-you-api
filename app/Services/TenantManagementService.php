@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\Hash;
  */
 class TenantManagementService
 {
-    private const COUNTS = ['users', 'vehicles', 'schedules', 'bookings'];
+    private const COUNTS = ['users', 'vehicles', 'schedules', 'bookings', 'locations'];
 
     public function list(array $filters = [], int $perPage = 15)
     {

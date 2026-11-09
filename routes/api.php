@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\V1\LocationController;
 use App\Http\Controllers\Api\V1\RouteController;
 use App\Http\Controllers\Api\V1\ScheduleController;
 use App\Http\Controllers\Api\V1\StateController;
+use App\Http\Controllers\Api\V1\CityController;
 use App\Http\Controllers\Api\V1\TripController;
 use App\Http\Controllers\Api\V1\BookingController;
 use App\Http\Controllers\Api\V1\UploadController;
@@ -40,8 +41,6 @@ Route::prefix('v1')->group(function () {
     Route::get('/trips/recurring/{group}/seats', [TripController::class, 'recurringSeats']);
     Route::get('/trips/{id}', [TripController::class, 'show']);
     Route::get('/trips/{id}/seats', [TripController::class, 'seats']);
-
-    Route::apiResource('locations', LocationController::class);
 
     Route::post('/register', [AuthController::class, 'register']);
     Route::post('/login', [AuthController::class, 'login']);
@@ -89,6 +88,10 @@ Route::prefix('v1')->group(function () {
         Route::patch('scheduled-trips/{id}/assignment', [ScheduledTripController::class, 'assign']);
         Route::delete('scheduled-trips/{id}/assignment', [ScheduledTripController::class, 'unassign']);
         Route::apiResource('states', StateController::class);
+        Route::get('cities', [CityController::class, 'index']);
+
+        // Operator locations — scoped to the caller's tenant in the controller.
+        Route::apiResource('locations', LocationController::class);
         Route::apiResource('vehicle-classes', VehicleClassController::class);
         Route::apiResource('vehicle-categories', VehicleCategoryController::class);
         Route::apiResource('vehicle-types', VehicleTypeController::class);

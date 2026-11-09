@@ -14,9 +14,22 @@ class Location extends Model
         'external_ref',
         'name',
         'city',
+        'address',
+        'latitude',
+        'longitude',
         'state_id',
         'status_id',
     ];
+
+    protected $casts = [
+        'latitude'  => 'float',
+        'longitude' => 'float',
+    ];
+
+    public function tenant()
+    {
+        return $this->belongsTo(Tenant::class);
+    }
 
     public function state()
     {

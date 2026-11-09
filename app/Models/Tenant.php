@@ -36,4 +36,9 @@ class Tenant extends Model
     {
         return $this->hasMany(Booking::class);
     }
+
+    public function locations()
+    {
+        return $this->hasMany(Location::class);
+    }
 }

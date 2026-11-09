@@ -15,6 +15,7 @@ class DatabaseSeeder extends Seeder
         $this->call([
             SuperAdminSeeder::class,
             StatesSeeder::class,
+            CitiesSeeder::class,
             StatusesSeeder::class,
             LocationsSeeder::class,
             VehicleCategorySeeder::class,
