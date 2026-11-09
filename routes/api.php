@@ -37,6 +37,7 @@ use App\Http\Controllers\Api\V1\DriverController;
 
 Route::prefix('v1')->group(function () {
     // Public trip search — no auth required
+    Route::get('/cities', [CityController::class, 'index']);
     Route::get('/trips', [TripController::class, 'index']);
     Route::get('/trips/recurring/{group}/seats', [TripController::class, 'recurringSeats']);
     Route::get('/trips/{id}', [TripController::class, 'show']);
@@ -88,7 +89,6 @@ Route::prefix('v1')->group(function () {
         Route::patch('scheduled-trips/{id}/assignment', [ScheduledTripController::class, 'assign']);
         Route::delete('scheduled-trips/{id}/assignment', [ScheduledTripController::class, 'unassign']);
         Route::apiResource('states', StateController::class);
-        Route::get('cities', [CityController::class, 'index']);
 
         // Operator locations — scoped to the caller's tenant in the controller.
         Route::apiResource('locations', LocationController::class);
