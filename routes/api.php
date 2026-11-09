@@ -38,6 +38,8 @@ use App\Http\Controllers\Api\V1\DriverController;
 Route::prefix('v1')->group(function () {
     // Public trip search — no auth required
     Route::get('/cities', [CityController::class, 'index']);
+    // Public, read-only location list for customers (operators use the authed, tenant-scoped /locations).
+    Route::get('/public/locations', [LocationController::class, 'publicIndex']);
     Route::get('/trips', [TripController::class, 'index']);
     Route::get('/trips/recurring/{group}/seats', [TripController::class, 'recurringSeats']);
     Route::get('/trips/{id}', [TripController::class, 'show']);

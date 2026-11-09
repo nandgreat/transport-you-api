@@ -56,6 +56,27 @@ class LocationController extends Controller
         );
     }
 
+    /**
+     * Public, read-only list of all locations for the customer app. Unlike
+     * index() it is not tenant-scoped and needs no login.
+     */
+    public function publicIndex(Request $request)
+    {
+        $request->validate([
+            'search'   => 'nullable|string|max:100',
+            'city'     => 'nullable|string|max:100',
+            'per_page' => 'nullable|integer|min:1|max:100',
+        ]);
+
+        return $this->success(
+            $this->locationService->getLocations(
+                $request->only(['search', 'city']),
+                (int) $request->input('per_page', 100)
+            ),
+            'Locations retrieved successfully'
+        );
+    }
+
     public function store(StoreLocationRequest $request)
     {
         $data = $request->validated();
